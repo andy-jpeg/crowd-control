@@ -1,0 +1,57 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*keypair*.json
+id.json
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.vite/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Python (if the server uses it)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Logs and test output
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/
+
+# Roblox
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+sourcemap.json
+
+# Claude Code (personal files only; .claude/settings.json and CLAUDE.md stay committed)
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
