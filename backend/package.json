@@ -4,10 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsx --test src/server.test.ts",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "migrate": "tsx src/migrate.ts"
   },
   "keywords": [],
   "author": "",
@@ -15,11 +16,14 @@
   "type": "commonjs",
   "dependencies": {
     "dotenv": "^18.0.8",
-    "express": "^5.3.0"
+    "express": "^5.3.0",
+    "express-oauth2-jwt-bearer": "^1.11.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

@@ -47,7 +47,7 @@ The source of truth for events, prices, and limits is `shared/events.md`. Summar
 
 ### Auth0
 - Spectators sign in with email only, using Auth0 passwordless (a one-time code or magic link). No passwords. They pick a username after their first sign-in
-- A spectator account tracks total sessions joined, overall tokens spent, and their devnet wallet
+- A spectator account tracks total sessions joined and lifetime tokens spent. Spendable balances are session-scoped and reset to 0 when a session ends; keep the per-session token ledger and temporary session state durable so an accidental disconnect/rejoin can be recovered. Record balance clearing separately from purchase spending.
 - Players don't create an account. Their Roblox identity is enough
 - Sessions are created by the Roblox game server, not a person: when a server starts it generates a 4-letter code, registers it with the backend as the session ID (`shared/api.md`), then shows the code and QR in-game. The game server authenticates as an Auth0 machine-to-machine client, with its client secret in the experience's secrets store
 - The moderator panel (approve wildcard suggestions, skip events) requires Auth0 login and the `moderator` role. The server checks permissions on every moderator endpoint, not just the UI
