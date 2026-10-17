@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './BasicEventWheelView.css'
+import logo from '../assets/CrowdControl.png'
 
 export interface BasicEventItem {
   id: string
@@ -171,7 +172,10 @@ export function BasicEventWheelView({
     >
       {/* Top Header Bar */}
       <header className="basic-topbar">
-        <span className="basic-app-title">Crowd Control {sessionCode ? `• ${sessionCode}` : ''}</span>
+        <span className="basic-app-title">
+          <img className="basic-app-logo" src={logo} alt="Crowd Control" />
+          {sessionCode ? `• ${sessionCode}` : ''}
+        </span>
       </header>
 
       {/* Sub-header info: Timer & Tokens */}
@@ -262,7 +266,7 @@ export function BasicEventWheelView({
       {/* Action Prompt / Trigger Toast */}
       <div className="wheel-footer">
         {triggerFeedback ? (
-          <div className="trigger-toast">⚡ {triggerFeedback} Triggered!</div>
+          <div className="trigger-toast">{triggerFeedback} Triggered!</div>
         ) : (
           <p className="wheel-instruction">
             Scroll or swipe wheel • Tap center to trigger

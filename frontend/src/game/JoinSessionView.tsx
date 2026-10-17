@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import './JoinSessionView.css'
+import logo from '../assets/CrowdControl.png'
 
 interface JoinSessionViewProps {
   onJoin: (sessionCode: string) => void
@@ -52,7 +53,7 @@ export function JoinSessionView({ onJoin, onBack }: JoinSessionViewProps) {
 
       <div className="join-content">
         <h1 className="join-brand-title">
-          Crowd<br />Control
+          <img className="join-brand-logo" src={logo} alt="Crowd Control" />
         </h1>
 
         <form className="join-box" onSubmit={handleJoinSubmit}>

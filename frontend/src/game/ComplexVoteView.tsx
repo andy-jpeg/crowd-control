@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import './ComplexVoteView.css'
+import logo from '../assets/CrowdControl.png'
 
 export interface PlayerInfo {
   id: string
@@ -94,7 +95,9 @@ export function ComplexVoteView({
       )}
 
       <header className="vote-header">
-        <h1 className="vote-brand-title">Crowd Control</h1>
+        <h1 className="vote-brand-title">
+          <img className="vote-brand-logo" src={logo} alt="Crowd Control" />
+        </h1>
         <div className="vote-status-bar">
           <span className="vote-timer">{formattedTime}</span>
           <div className="vote-circle-badge" title="Session active" />
@@ -176,7 +179,7 @@ export function ComplexVoteView({
           )}
 
           <p className="prediction-reward-note">
-            🎯 Correct guess awards <strong>+50 tokens</strong> at round end!
+            Correct guess awards <strong>+50 tokens</strong> at round end!
           </p>
         </section>
       </main>

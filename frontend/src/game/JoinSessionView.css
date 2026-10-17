@@ -7,8 +7,8 @@
   flex-direction: column;
   position: relative;
   padding: 1.5rem 1.25rem 2rem;
-  background: #ffffff; /* Clean white canvas matching the wireframe frame */
-  color: #111827;
+  background: transparent;
+  color: var(--cc-text);
 }
 
 .join-back-link {
@@ -28,18 +28,18 @@
 .join-back-text {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #4b5563;
+  color: var(--cc-text-muted);
   display: inline-block;
   padding-bottom: 2px;
-  border-bottom: 2px solid transparent;
+  border-bottom: var(--cc-border);
   text-decoration: none;
   transition: all 0.15s ease;
 }
 
 .join-back-link:hover .join-back-text,
 .join-back-text.hovered {
-  color: #000000 !important;
-  border-bottom: 2px solid #000000 !important;
+  color: var(--cc-text) !important;
+  border-bottom: 2px solid var(--cc-border-color) !important;
   text-decoration: underline !important;
 }
 
@@ -62,7 +62,7 @@
   font-weight: 700;
   line-height: 1.15;
   text-align: center;
-  color: #000000;
+  color: var(--cc-text);
   margin: 0 0 2.5rem;
   letter-spacing: -0.03em;
 }
@@ -79,7 +79,7 @@
 .join-code-input {
   width: 100%;
   height: 58px;
-  background: #d4d4d8; /* Light gray box matching wireframe */
+  background: var(--cc-surface);
   border: none;
   outline: none;
   text-align: center;
@@ -87,12 +87,12 @@
   font-weight: 700;
   letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: #18181b;
+  color: var(--cc-text);
   padding: 0 0.75rem;
 }
 
 .join-code-input::placeholder {
-  color: #52525b;
+  color: var(--cc-text-muted);
   font-weight: 500;
   letter-spacing: 0.02em;
 }
@@ -100,8 +100,8 @@
 .join-submit-btn {
   width: 100%;
   height: 56px;
-  background: #000000 !important; /* Solid black matching wireframe */
-  color: #ffffff !important;
+  background: var(--cc-accent) !important;
+  color: var(--cc-on-accent) !important;
   border: none;
   border-radius: 0 !important;
   font-size: 1.35rem;
@@ -125,4 +125,12 @@
   font-weight: 600;
   margin-top: 1.25rem;
   text-align: center;
+}
+
+.join-brand-logo {
+  display: block;
+  filter: drop-shadow(0 4px 6px rgba(43, 22, 6, 0.3)); /* lifts the orange logo off the orange background */
+  transform: translateX(6%); /* the burst on the right makes the art look left-heavy */
+  width: min(100%, 320px);
+  height: auto;
 }
