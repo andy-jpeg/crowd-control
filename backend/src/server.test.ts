@@ -3,8 +3,13 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import type { RequestHandler } from "express";
-import { Pool } from "pg";
-import { createApp, normalizeSessionCode } from "./server.js";
+import { Pool, type PoolClient } from "pg";
+import {
+  createApp,
+  getLongestSurvivorIds,
+  getTimeBracket,
+  normalizeSessionCode
+} from "./server.js";
 
 async function withServer(
   app: ReturnType<typeof createApp>,
@@ -26,6 +31,23 @@ async function withServer(
   }
 }
 
+function mockPool(
+  queryHandler: (sql: string, values?: unknown[]) => {
+    rows: Array<Record<string, unknown>>;
+    rowCount: number;
+  }
+): Pool {
+  const query = async (sql: string, values?: unknown[]) => queryHandler(sql, values);
+  const client = {
+    query,
+    release: () => undefined
+  } as unknown as PoolClient;
+  return {
+    connect: async () => client,
+    query
+  } as unknown as Pool;
+}
+
 test("normalizes valid session codes to uppercase", () => {
   assert.equal(normalizeSessionCode("kwpz"), "KWPZ");
 });
@@ -34,6 +56,26 @@ test("rejects session codes outside the four-letter alphabet", () => {
   for (const value of ["KWP", "KWPZZ", "KWIZ", "KWOZ", "1234", "", null, 1234]) {
     assert.equal(normalizeSessionCode(value), null);
   }
+});
+
+test("maps survival boundaries to exactly one prediction bracket", () => {
+  assert.equal(getTimeBracket(0, false), "0:00 - 0:30");
+  assert.equal(getTimeBracket(29.999, false), "0:00 - 0:30");
+  assert.equal(getTimeBracket(30, false), "0:30 - 1:00");
+  assert.equal(getTimeBracket(60, false), "1:00 - 1:30");
+  assert.equal(getTimeBracket(90, false), "1:30 - 2:00");
+  assert.equal(getTimeBracket(81, true), "1:30 - 2:00");
+});
+
+test("treats all players tied for the longest survival time as prediction winners", () => {
+  assert.deepEqual(
+    [...getLongestSurvivorIds([
+      { playerId: "100", survivalSeconds: 119.5 },
+      { playerId: "200", survivalSeconds: 120 },
+      { playerId: "300", survivalSeconds: 120 }
+    ])].sort(),
+    ["200", "300"]
+  );
 });
 
 test("preserves the health endpoint without opening a database connection", async () => {
@@ -115,4 +157,317 @@ test("rejects invalid request shapes and missing session tokens before querying 
     }
   });
   await pool.end();
+});
+
+test("requires a spectator access token on all spectator endpoints", async () => {
+  const pool = new Pool();
+  await withServer(createApp(pool), async (baseUrl) => {
+    const requests: Array<[string, string]> = [
+      ["POST", "/api/sessions/KWPZ/join"],
+      ["POST", "/api/sessions/KWPZ/vote"],
+      ["POST", "/api/sessions/KWPZ/predict"],
+      ["GET", "/api/profile/me?auth0UserId=auth0%7Ctest"],
+      ["PATCH", "/api/profile/me/username"]
+    ];
+    for (const [method, path] of requests) {
+      const response = await fetch(`${baseUrl}${path}`, { method });
+      assert.equal(response.status, 401, `${method} ${path} should require a bearer token`);
+    }
+  });
+  await pool.end();
+});
+
+test("validates spectator input and binds supplied Auth0 IDs to the verified subject", async () => {
+  const pool = new Pool();
+  const verifiedSpectator: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: "auth0|test-user" },
+      token: "verified-test-token"
+    };
+    next();
+  };
+  await withServer(
+    createApp(pool, undefined, undefined, verifiedSpectator),
+    async (baseUrl) => {
+      const invalidRequests: Array<[string, string, object]> = [
+        ["POST", "/api/sessions/KWPZ/join", {
+          auth0UserId: "auth0|other-user",
+          username: "player"
+        }],
+        ["POST", "/api/sessions/KWPZ/vote", {
+          auth0UserId: "auth0|test-user",
+          eventId: "not_a_complex_event"
+        }],
+        ["POST", "/api/sessions/KWPZ/predict", {
+          auth0UserId: "auth0|test-user",
+          type: "time_bracket",
+          value: "0:30-1:00"
+        }],
+        ["PATCH", "/api/profile/me/username", {
+          auth0UserId: "auth0|test-user",
+          username: "bad username"
+        }]
+      ];
+      for (const [method, path, body] of invalidRequests) {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        assert.ok(
+          response.status === 400 || response.status === 403,
+          `${method} ${path} should reject invalid input without querying persistence`
+        );
+      }
+      const mismatchedProfile = await fetch(
+        `${baseUrl}/api/profile/me?auth0UserId=auth0%7Cother-user`
+      );
+      assert.equal(mismatchedProfile.status, 403);
+    }
+  );
+  await pool.end();
+});
+
+test("joins a spectator once and grants the session-start tokens through the ledger", async () => {
+  const rewardKeys: unknown[] = [];
+  let membershipInsertCount = 0;
+  let rewardInsertCount = 0;
+  const pool = mockPool((sql, values) => {
+    if (sql.includes("SELECT id, current_round FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 2 }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO spectator_profiles")) {
+      return { rows: [{ id: "17", username: "crowd_user" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO session_memberships")) {
+      membershipInsertCount += 1;
+      return { rows: [{ id: "9" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO token_ledger")) {
+      rewardInsertCount += 1;
+      rewardKeys.push(values?.[1]);
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("SELECT token_balance")) {
+      return { rows: [{ token_balance: "50" }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
+  });
+  const verifiedSpectator: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: "auth0|crowd-user" },
+      token: "verified-test-token"
+    };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, undefined, undefined, verifiedSpectator),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/sessions/kwpz/join`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|crowd-user",
+          username: "crowd_user"
+        })
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        sessionId: "31",
+        tokenBalance: 50,
+        username: "crowd_user",
+        currentRound: 2
+      });
+    }
+  );
+  assert.equal(membershipInsertCount, 1);
+  assert.equal(rewardInsertCount, 1);
+  assert.deepEqual(rewardKeys, ["join-reward:31:17"]);
+});
+
+test("serves and updates a profile bound to the verified Auth0 subject", async () => {
+  const pool = mockPool((_sql, values) => ({
+    rows: [{
+      auth0UserId: "auth0|crowd-user",
+      username: values?.[1] ?? "crowd_user",
+      totalSessionsJoined: "3",
+      totalTokensSpent: "90",
+      createdAt: "2026-10-17T00:00:00.000Z"
+    }],
+    rowCount: 1
+  }));
+  const verifiedSpectator: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: "auth0|crowd-user" },
+      token: "verified-test-token"
+    };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, undefined, undefined, verifiedSpectator),
+    async (baseUrl) => {
+      const profile = await fetch(
+        `${baseUrl}/api/profile/me?auth0UserId=auth0%7Ccrowd-user`
+      );
+      assert.equal(profile.status, 200);
+      const profileBody = await profile.json();
+      assert.equal(profileBody.auth0UserId, "auth0|crowd-user");
+      assert.equal(profileBody.totalSessionsJoined, 3);
+      assert.equal(profileBody.totalTokensSpent, 90);
+
+      const updated = await fetch(`${baseUrl}/api/profile/me/username`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|crowd-user",
+          username: "new_name"
+        })
+      });
+      assert.equal(updated.status, 200);
+      const updatedBody = await updated.json();
+      assert.equal(updatedBody.username, "new_name");
+    }
+  );
+});
+
+test("accepts complex-event votes and validated predictions for the current round", async () => {
+  const statements: string[] = [];
+  const pool = mockPool((sql) => {
+    statements.push(sql);
+    if (sql.includes("SELECT id, current_round FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 1 }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT id FROM spectator_profiles")) {
+      return { rows: [{ id: "17" }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT 1 FROM session_memberships")) {
+      return { rows: [{ "?column?": 1 }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const verifiedSpectator: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: "auth0|crowd-user" },
+      token: "verified-test-token"
+    };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, undefined, undefined, verifiedSpectator),
+    async (baseUrl) => {
+      const vote = await fetch(`${baseUrl}/api/sessions/KWPZ/vote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|crowd-user",
+          eventId: "tsunami"
+        })
+      });
+      assert.equal(vote.status, 200);
+      assert.deepEqual(await vote.json(), { ok: true, eventId: "tsunami" });
+
+      const prediction = await fetch(`${baseUrl}/api/sessions/KWPZ/predict`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|crowd-user",
+          type: "time_bracket",
+          value: "1:30 - 2:00"
+        })
+      });
+      assert.equal(prediction.status, 200);
+      assert.deepEqual(await prediction.json(), {
+        ok: true,
+        prediction: { type: "time_bracket", value: "1:30 - 2:00" }
+      });
+
+      const catalogEvent = await fetch(`${baseUrl}/api/sessions/KWPZ/vote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|crowd-user",
+          eventId: "blob_fight"
+        })
+      });
+      assert.equal(catalogEvent.status, 200);
+    }
+  );
+  assert.ok(statements.some((sql) => sql.includes("INSERT INTO spectator_votes")));
+  assert.ok(statements.some((sql) => sql.includes("INSERT INTO spectator_predictions")));
+});
+
+test("settles tied multiplayer predictions once and treats exact result retries idempotently", async () => {
+  const statements: string[] = [];
+  const predictionRewards: string[] = [];
+  let resultStored = false;
+  const pool = mockPool((sql, values) => {
+    statements.push(sql);
+    if (sql.includes("SELECT id, session_token, status FROM sessions")) {
+      return { rows: [{ id: "31", session_token: "00000000-0000-4000-8000-000000000000", status: "active" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO round_results")) {
+      if (resultStored) return { rows: [], rowCount: 0 };
+      resultStored = true;
+      return { rows: [{ id: "1" }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT result =")) {
+      return { rows: [{ same_result: true }], rowCount: 1 };
+    }
+    if (sql.includes("FROM spectator_predictions")) {
+      return {
+        rows: [
+          { id: "1", spectator_id: "10", prediction_type: "player", predicted_value: "200" },
+          { id: "2", spectator_id: "11", prediction_type: "player", predicted_value: "400" },
+          { id: "3", spectator_id: "12", prediction_type: "player", predicted_value: "300" }
+        ],
+        rowCount: 3
+      };
+    }
+    if (sql.includes("INSERT INTO token_ledger")) {
+      predictionRewards.push(String(values?.[2]));
+      return { rows: [], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+  const sessionToken = "00000000-0000-4000-8000-000000000000";
+  const requestBody = {
+    round: 1,
+    players: [
+      { playerId: "200", survivalSeconds: 120 },
+      { playerId: "400", survivalSeconds: 120 },
+      { playerId: "300", survivalSeconds: 119 }
+    ]
+  };
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth),
+    async (baseUrl) => {
+      const sendResult = () => fetch(`${baseUrl}/sessions/KWPZ/results`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Session-Token": sessionToken
+        },
+        body: JSON.stringify(requestBody)
+      });
+      const first = await sendResult();
+      assert.equal(first.status, 201);
+      assert.deepEqual(await first.json(), { ok: true });
+
+      const retry = await sendResult();
+      assert.equal(retry.status, 200);
+      assert.deepEqual(await retry.json(), { ok: true, duplicate: true });
+    }
+  );
+  assert.equal(predictionRewards.length, 2);
+  assert.ok(predictionRewards.every((key) => key.startsWith("pred-reward:31:1:")));
+  assert.equal(statements.filter((sql) => sql.includes("UPDATE spectator_predictions")).length, 3);
 });

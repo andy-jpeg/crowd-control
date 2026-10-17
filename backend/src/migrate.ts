@@ -1,9 +1,7 @@
 import "dotenv/config";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool, type PoolClient } from "pg";
-
-const migrationVersion = "001_initial";
 
 async function migrate() {
   const connectionString = process.env.DATABASE_URL;
@@ -16,27 +14,34 @@ async function migrate() {
   let transactionOpen = false;
   try {
     client = await pool.connect();
-    await client.query("BEGIN");
-    transactionOpen = true;
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
     )`);
-    const applied = await client.query(
-      "SELECT 1 FROM schema_migrations WHERE version = $1",
-      [migrationVersion]
-    );
-    if (applied.rowCount === 0) {
-      const sql = await readFile(resolve(process.cwd(), "db/001_initial.sql"), "utf8");
+    const migrationFiles = (await readdir(resolve(process.cwd(), "db")))
+      .filter((filename) => /^\d+_[a-z0-9_-]+\.sql$/.test(filename))
+      .sort();
+    for (const filename of migrationFiles) {
+      const migrationVersion = filename.replace(/\.sql$/, "");
+      const applied = await client.query(
+        "SELECT 1 FROM schema_migrations WHERE version = $1",
+        [migrationVersion]
+      );
+      if (applied.rowCount !== 0) continue;
+
+      await client.query("BEGIN");
+      transactionOpen = true;
+      const sql = await readFile(resolve(process.cwd(), "db", filename), "utf8");
       await client.query(sql);
       await client.query(
         "INSERT INTO schema_migrations (version) VALUES ($1)",
         [migrationVersion]
       );
+      await client.query("COMMIT");
+      transactionOpen = false;
+      console.log(`Applied database migration ${migrationVersion}`);
     }
-    await client.query("COMMIT");
-    transactionOpen = false;
-    console.log(applied.rowCount === 0 ? "Database migration applied" : "Database already up to date");
+    console.log("Database migrations are up to date");
   } catch (error) {
     if (client && transactionOpen) {
       try {
