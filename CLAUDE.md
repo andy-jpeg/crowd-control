@@ -10,6 +10,7 @@ Built for SwampHacks (Overall Prize + Entertainment & Creative Technology tracks
 - `web/`: the spectator app (mobile-first)
 - `server/`: the backend. Gemini, Auth0, Solana, Tiger Data, and the bridge to Roblox. One API, and every caller is authenticated through Auth0 (see Auth0 below)
 - `shared/events.md`: the event format both halves agree on. The source of truth for every event type
+- `shared/api.md`: the routes and JSON the Roblox server and the backend use to talk to each other
 
 Work inside the folder the task belongs to. Don't change another folder unless the task requires it.
 
@@ -48,7 +49,7 @@ The source of truth for events, prices, and limits is `shared/events.md`. Summar
 - Spectators sign in with email only, using Auth0 passwordless (a one-time code or magic link). No passwords. They pick a username after their first sign-in
 - A spectator account tracks total sessions joined, overall tokens spent, and their devnet wallet
 - Players don't create an account. Their Roblox identity is enough
-- Rooms are created by the Roblox game server, not a person: when a server starts it asks the backend for a room code, then shows the code and QR in-game. The game server authenticates as an Auth0 machine-to-machine client, with its client secret in the experience's secrets store
+- Sessions are created by the Roblox game server, not a person: when a server starts it generates a 4-letter code, registers it with the backend as the session ID (`shared/api.md`), then shows the code and QR in-game. The game server authenticates as an Auth0 machine-to-machine client, with its client secret in the experience's secrets store
 - The moderator panel (approve wildcard suggestions, skip events) requires Auth0 login and the `moderator` role. The server checks permissions on every moderator endpoint, not just the UI
 
 ### Secrets

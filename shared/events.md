@@ -28,7 +28,7 @@ What the server sends the game for each event to run:
 }
 ```
 
-- `id`: increasing number per room, so the game can poll with `since=<last id>` and never run an event twice
+- `id`: increasing number per session, so the game can poll with `since=<last id>` and never run an event twice
 - `type`: one of the IDs below. Unknown types are ignored
 - `triggeredBy`: shown in-game ("Low Gravity, triggered by @username") after `TextService` filtering
 - `params`: per-event settings. Numbers are clamped to the ranges below. Missing params use the default
@@ -42,7 +42,7 @@ For wildcard events, the server adds `title` and `announcer` strings written by 
 | `bombs` | Bombs | Bombs drop onto random spots on the podium, flash, then explode | `count` (1-8, default 5) |
 | `inverted_controls` | Inverted Controls | W/S and A/D swap. Triggering it again while active restarts the timer | `duration` (3-20s, default 10) |
 | `low_gravity` | Low Gravity | Gravity drops | `duration` |
-| `ink_screen` | Squid Ink | Ink splats block the player's screen | `duration` |
+| `ink_screen` | Squid Ink | An ink splat pops onto the player's screen (fades in while growing to full size), stays for the duration, then fades out. Triggering it again restarts the timer | `duration` (2-10s, default 5) |
 | `banana_peels` | Banana Peels | Banana peels appear at random spots on the podium. Stepping on one makes the player fall over (sit), then that peel disappears. Untouched peels disappear after 10 seconds | `count` (1-5, default 3) |
 | `spring_traps` | Spring Traps | Coiled springs appear on the podium. Stepping on one launches the player into the air with a small push in a random direction. Springs disappear after 10 seconds | `count` (1-6, default 3) |
 | `slime_puddles` | Slime Puddles | Slime puddles appear on the podium and slow the player down while they stand in one. Puddles disappear after 10 seconds | `count` (1-5, default 3) |
@@ -53,16 +53,16 @@ For wildcard events, the server adds `title` and `announcer` strings written by 
 |---|---|---|---|
 | `giant_boulder` | Giant Boulder | Boulders roll across the podium one after another for the duration. Each appears at the edge with its path shown, then rolls straight across, damaging anyone it touches | `duration` (15-45s, default 30) |
 | `floor_is_lava` | Floor Is Lava | Floor tiles turn to lava | `duration` |
-| `shrinking_podium` | Shrinking Podium | The podium shrinks over time | |
+| `shrinking_podium` | Shrinking Podium | The podium flashes red for 2 seconds, shrinks to 40% of its width over 5 seconds, stays small for the duration, then grows back. Other events spawn on whatever size the podium is at the time | `duration` (5-25s, default 15) |
 | `tornado` | Tornado | A tornado sweeps the arena | `duration` |
 | `tsunami` | Tsunami | A house appears in the middle of the podium, the player is teleported near the edge, and the whole podium turns red. After a short warning, a wave sweeps across. The only safe spot is the house roof | |
 | `flood_escape` | Flood Escape | Water rises and the player has to climb | |
 | `obby_chase` | Obby Chase | An obby appears with something chasing the player | |
 | `blob_fight` | Blob Fight | A giant blob spawns and the player fights it with a sword | |
 
-Build order for complex events: `giant_boulder` is built. `floor_is_lava` and `shrinking_podium` next, since they reuse the existing podium. The rest are stretch goals.
+Built complex events: `giant_boulder`, `tsunami`, `shrinking_podium`. `floor_is_lava` next, since it reuses the existing podium. The rest are stretch goals.
 
 ## Open items
 
 - Fill in each event's params with ranges and defaults once the Roblox side builds it
-- Confirm the server-to-game delivery method (polling `GET /rooms/:code/events?since=<id>` vs. pushing) with the backend
+- Routes and request formats between the game and the backend are in `shared/api.md`
