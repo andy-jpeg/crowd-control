@@ -181,8 +181,16 @@ export function ComplexVoteView({
         </section>
       </main>
 
-      {/* Developer preview toggle for testing */}
+      {/* Developer preview toggle for testing & Proceed button */}
       <footer className="vote-footer">
+        <button
+          type="button"
+          className="proceed-round-btn"
+          onClick={() => onVoteComplete?.(selectedEventId, prediction || null)}
+        >
+          Start Round (Go to Wheel) →
+        </button>
+
         <button
           type="button"
           className="demo-toggle-btn"
