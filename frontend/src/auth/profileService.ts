@@ -3,6 +3,8 @@ export type ProfileRecord = {
   username: string | null
   email: string | null
   provider: 'auth0-email-password' | 'google-oauth2' | 'unknown'
+  totalSessionsJoined?: number
+  overallTokensSpent?: number
   createdAt: string
   updatedAt: string
 }
@@ -79,6 +81,8 @@ class DevelopmentProfileService implements ProfileService {
       username,
       email: existing?.email ?? null,
       provider: existing?.provider ?? 'unknown',
+      totalSessionsJoined: existing?.totalSessionsJoined ?? 0,
+      overallTokensSpent: existing?.overallTokensSpent ?? 0,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     }
