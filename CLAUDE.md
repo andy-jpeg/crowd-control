@@ -1,6 +1,6 @@
 # Crowd Control
 
-A Roblox party game where a live audience controls the chaos. Players compete in short rounds while spectators on a web app (phones, joined by QR code) predict outcomes, spend tokens to trigger in-game events, and submit wildcard suggestions that Gemini turns into real events.
+A Roblox survival game where a live audience controls the chaos. One player tries to survive each round while spectators on a web app (phones, joined by QR code) bet on how long they'll last, spend tokens to trigger hazards, and submit wildcard suggestions that Gemini turns into real events.
 
 Built for SwampHacks (Overall Prize + Entertainment & Creative Technology tracks).
 
@@ -13,12 +13,22 @@ Built for SwampHacks (Overall Prize + Entertainment & Creative Technology tracks
 
 Work inside the folder the task belongs to. Don't change another folder unless the task requires it.
 
+## Game rules
+
+The source of truth for events, prices, and limits is `shared/events.md`. Summary:
+
+- **Single player.** One player per session. Multiplayer is a nice-to-have, not part of the core build
+- **Session:** 5 to 10 rounds. Anyone who joins mid-round waits until the next round starts
+- **Round:** the player survives for up to 2:00. Before it starts, spectators bet on a survival bracket: 0:00-0:30, 0:30-1:00, 1:00-1:30, 1:30-2:00. Surviving the full 2:00 counts as the 1:30-2:00 bracket
+- **Events:** basic events cost 30 tokens, complex events cost 80. Basic events have no per-round limit; complex events are limited to 1 per round, shared across all spectators. Basic events have no cooldown (spectators can spam them); complex events have a 30-second cooldown
+- **Tokens (spectators only):** +50 for joining a session, +30 for each round they stay for, +50 for betting the correct bracket. The player doesn't earn or spend tokens
+
 ## How the pieces talk
 
-- **Web → server:** spectator actions (votes, predictions, token spends, wildcard suggestions)
+- **Web → server:** spectator actions (bracket bets, token spends, wildcard suggestions)
 - **Server → Roblox:** events to run, pushed through Open Cloud MessagingService (or polled by the game)
 - **Roblox → server:** round results and gameplay events, sent through HttpService, logged to Tiger Data
-- **Gemini:** turns wildcard suggestions into structured events using a JSON schema. It can only pick event types, assets, and targets that exist in `shared/events.md`, with numbers clamped to their ranges
+- **Gemini:** turns wildcard suggestions into structured events using a JSON schema. It can only pick event types that exist in `shared/events.md`, with numbers clamped to their ranges, and the result still counts against the round's event limits. Gemini also writes the round recap
 
 ## Rules
 
@@ -35,8 +45,9 @@ Work inside the folder the task belongs to. Don't change another folder unless t
 - Tokens and wallets live entirely on the web/server side. The game only ever receives "run event X", never anything about tokens or wallets
 
 ### Auth0
-- Spectators never need an account. They join a room with a code and get a guest session token
-- Spectators can optionally sign in through Auth0 after a round to keep their tokens, stats, and a persistent devnet wallet. Signing in merges their guest session into the account
+- Spectators sign in with email only, using Auth0 passwordless (a one-time code or magic link). No passwords. They pick a username after their first sign-in
+- A spectator account tracks total sessions joined, overall tokens spent, and their devnet wallet
+- Players don't create an account. Their Roblox identity is enough
 - Rooms are created by the Roblox game server, not a person: when a server starts it asks the backend for a room code, then shows the code and QR in-game. The game server authenticates as an Auth0 machine-to-machine client, with its client secret in the experience's secrets store
 - The moderator panel (approve wildcard suggestions, skip events) requires Auth0 login and the `moderator` role. The server checks permissions on every moderator endpoint, not just the UI
 
@@ -51,6 +62,8 @@ Work inside the folder the task belongs to. Don't change another folder unless t
 ## Priorities
 
 A fun game with a smooth audience loop comes first. If time gets tight, cut in this order: Solana, then advanced dashboard analytics, then everything else.
+
+Nice-to-haves, only once the core loop works: multiplayer, then additional complex events beyond the first few.
 
 ## Web and server conventions
 

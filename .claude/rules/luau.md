@@ -77,4 +77,5 @@ end)
 ## Azul
 
 - Scripts sync between Studio and `sync/` through Azul. The instance hierarchy lives in Studio
-- Edit and create scripts as files here. Don't try to create non-script instances (ScreenGuis, Parts, RemoteEvents) by adding files. Either build UI in a ModuleScript, or ask a teammate to add the instance in Studio
+- Edit existing scripts as files here. Azul can't map a brand-new file to Studio ("No mapping found"), so a new Script, LocalScript, or ModuleScript has to be created in Studio first. Write the code, then tell the user exactly what to create in Studio (class, name, parent) before the file can sync
+- Don't try to create non-script instances (ScreenGuis, Parts, RemoteEvents) by adding files either. Build UI in a ModuleScript, or ask the user to add the instance in Studio
