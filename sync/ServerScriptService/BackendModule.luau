@@ -1,7 +1,7 @@
 local HttpService = game:GetService("HttpService")
 
 local BASE_URL = "https://api.survivalofthe.fit"
-local MOCK = true
+local MOCK = false
 local MOCK_EVENT_CHANCE = 0 -- chance per poll that mock mode sends a fake low_gravity event; 0 while testing events by hand
 local AUTH0_DOMAIN, AUTH0_AUDIENCE = "dev-m0jsbayhzkudzxmh.us.auth0.com", "https://api.crowdcontrol"
 local AUTH0_SECRET_NAME = "auth0_basic" -- base64 of clientId:clientSecret, in the experience secrets store
@@ -14,7 +14,7 @@ local Backend = {}
 
 local random = Random.new()
 local accessToken, tokenExpiresAt, isFetchingToken = nil, 0, false
-local sessionCode = nil
+local sessionCode, sessionToken = nil, nil
 local telemetryQueue = {}
 local isFlushing = false
 local mockEventId = 0
@@ -81,7 +81,7 @@ end
 
 local function mockResponse(method, path, body)
 	if method == "POST" and path == "/sessions" then
-		return 201, {sessionId = body.sessionId}
+		return 201, {sessionId = body.sessionId, sessionToken = HttpService:GenerateGUID(false)}
 	end
 
 	if method == "GET" and string.match(path, "^/sessions/[^/]+/events") then
@@ -115,6 +115,9 @@ local function request(method, path, body)
 		end
 
 		local headers = {["Content-Type"] = "application/json", Authorization = "Bearer " .. token}
+		if sessionToken and path ~= "/sessions" then -- every route after creating a session needs the token it handed back
+			headers["X-Session-Token"] = sessionToken
+		end
 
 		local sent, response = pcall(function()
 			return HttpService:RequestAsync({
@@ -170,7 +173,12 @@ function Backend.createSession()
 		})
 
 		if success then
-			sessionCode = code
+			if type(data) ~= "table" or type(data.sessionToken) ~= "string" then
+				warn("[Backend] POST /sessions didn't return a sessionToken")
+				return false, data
+			end
+
+			sessionCode, sessionToken = code, data.sessionToken
 			return true, code
 		end
 
@@ -260,7 +268,7 @@ function Backend.endSession()
 
 	Backend.flushTelemetry()
 	Backend.post(sessionPath("/end"))
-	sessionCode = nil
+	sessionCode, sessionToken = nil, nil
 end
 
 task.spawn(function()

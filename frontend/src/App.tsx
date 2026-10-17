@@ -4,18 +4,24 @@ import './App.css'
 import { AuthPanel } from './auth/AuthPanel'
 import { JoinSessionView } from './game/JoinSessionView'
 import { ComplexVoteView } from './game/ComplexVoteView'
+import { BasicEventWheelView } from './game/BasicEventWheelView'
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID
 const redirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI ?? `${window.location.origin}/`
 
 function SpectatorApp() {
-  const [currentView, setCurrentView] = useState<'profile' | 'join' | 'vote'>('profile')
-  const [sessionCode, setSessionCode] = useState<string>('')
+  const [currentView, setCurrentView] = useState<'profile' | 'join' | 'vote' | 'wheel'>('profile')
+  const [sessionCode, setSessionCode] = useState<string>('KWPZ')
 
   const handleJoin = (code: string) => {
     setSessionCode(code)
     setCurrentView('vote')
+  }
+
+  const handleVoteComplete = (selectedEventId: string | null, prediction: string | null) => {
+    console.log('15s voting window finished. Selected event:', selectedEventId, 'Prediction:', prediction)
+    setCurrentView('wheel')
   }
 
   return (
@@ -47,8 +53,19 @@ function SpectatorApp() {
         <ComplexVoteView
           sessionCode={sessionCode}
           onLeaveSession={() => setCurrentView('join')}
-          onVoteComplete={(selectedEventId) => {
-            console.log('15s voting window finished. Selected event:', selectedEventId)
+          onVoteComplete={handleVoteComplete}
+        />
+      )}
+
+      {currentView === 'wheel' && (
+        <BasicEventWheelView
+          sessionCode={sessionCode}
+          currentRound={1}
+          totalRounds={5}
+          initialTokens={50}
+          onBackToVote={() => setCurrentView('vote')}
+          onTriggerEvent={(id) => {
+            console.log('Triggered basic event:', id)
           }}
         />
       )}
