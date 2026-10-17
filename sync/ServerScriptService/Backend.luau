@@ -55,7 +55,7 @@ local function mockResponse(method, path)
 		local events = {}
 		if random:NextNumber() < 0.3 then
 			mockEventId += 1
-			table.insert(events, {id = mockEventId, type = "low_gravity", target = "all", duration = 10})
+			table.insert(events, {id = mockEventId, type = "low_gravity", triggeredBy = "mock", params = {duration = 10}})
 		end
 		return {events = events}
 	end

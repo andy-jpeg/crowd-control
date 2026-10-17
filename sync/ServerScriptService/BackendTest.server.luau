@@ -1,6 +1,7 @@
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Backend = require(ServerScriptService.Backend)
+local EventsModule = require(ServerScriptService.EventsModule)
 
 local POLL_INTERVAL = 3
 
@@ -22,8 +23,9 @@ while true do
 	local polled, events = Backend.pollEvents(roomCode, lastEventId)
 	if polled then
 		for _, event in events do
-			print("[BackendTest] event " .. event.id .. ": " .. event.type .. " on " .. event.target .. " for " .. event.duration .. "s")
+			print("[BackendTest] event " .. event.id .. ": " .. tostring(event.type))
 			lastEventId = math.max(lastEventId, event.id)
+			EventsModule:Run(event)
 			Backend.queueTelemetry({type = "event_received", eventId = event.id})
 		end
 	end
