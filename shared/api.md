@@ -1,6 +1,6 @@
 # Roblox ↔ backend API
 
-The contract between the Roblox game server (`sync/ServerScriptService/Backend.luau`) and the backend (`backend/`). Change both sides in the same commit.
+The contract between the Roblox game server (`sync/ServerScriptService/BackendModule.luau`) and the backend (`backend/`). Change both sides in the same commit.
 
 ## Basics
 
@@ -32,7 +32,7 @@ The contract between the Roblox game server (`sync/ServerScriptService/Backend.l
 
 ### `POST /sessions`: register a new session
 
-Sent once when a Roblox server starts.
+Sent when the player presses Play on the main menu. A server can run several sessions in a row (each one ends with `POST /end`), and each gets a new code.
 
 ```json
 { "sessionId": "KWPZ", "jobId": "<game.JobId>", "placeId": 123456 }
@@ -57,6 +57,8 @@ The game polls this every few seconds. Return every event for the session with `
 }
 ```
 
+- `triggeredBy` is the spectator's username, shown in the game's action log ("andy placed Bombs!"). Keep usernames to 20 characters, letters, numbers, and underscores. The game also runs every name through Roblox's text filter before showing it, and shows "A spectator" if it's missing or the filter fails
+
 Event types, params, prices, limits, and cooldowns are defined in `shared/events.md`. The backend enforces all of them before an event is added here.
 
 ### `POST /sessions/:code/telemetry`: gameplay events for Tiger Data
@@ -73,15 +75,35 @@ Sent in batches every few seconds. `at` is a Unix timestamp in seconds (with dec
 
 Telemetry types will grow as gameplay is built. Store unknown types as-is rather than rejecting them.
 
+### `POST /sessions/:code/round`: round state changed
+
+Sent by `RoundManager` every time the round state changes. Use it to open and close betting, reset the per-round complex event limit, and pay the +30 tokens per round.
+
+```json
+{ "round": 3, "totalRounds": 5, "state": "active", "endsAt": 1792214520.0 }
+```
+
+- `state` is one of:
+  - `"lobby"`: the session was just created and spectators are joining. The host presses Start in the game when they're ready, so there's no `endsAt`
+  - `"intermission"`: betting is open, the player is waiting on the podium
+  - `"active"`: the 2:00 round is running, spectators can buy events
+  - `"results"`: round over, results are on the way
+- `endsAt` is the Unix time in seconds when this state ends, so the web app can show a countdown
+- Intermissions are 15s. A round is 120s unless the player is eliminated early. Results show for 5s
+- Only accept event purchases while `state` is `"active"`. If one slips in late, the game holds it and runs it at the start of the next round
+
 ### `POST /sessions/:code/results`: round results
 
-Sent when a round ends. The backend stores the authoritative result once per round. Draft shape:
+Sent when a round ends. Used to settle bracket bets and pay out tokens. The backend stores the authoritative result once per round.
 
 ```json
 { "round": 3, "survivalSeconds": 74.2, "survivedFullRound": false }
 ```
 
-An exact retry returns success without inserting a second result; a conflicting result for the same round returns **409**. Prediction payout settlement requires the spectator prediction flow and is not part of these Roblox routes yet.
+- `survivalSeconds` is rounded to 0.1s and capped at 120. With more than one player it's the longest survival
+- Brackets: `0:00-0:30`, `0:30-1:00`, `1:00-1:30`, `1:30-2:00`. Surviving the full round (`survivedFullRound: true`) counts as the last bracket
+- Falling off the podium counts as being eliminated
+- An exact retry returns success without inserting a second result; a conflicting result for the same round returns **409**. Prediction payout settlement requires the spectator prediction flow and is not part of these Roblox routes yet.
 
 ### `POST /sessions/:code/end`: session over
 
@@ -89,6 +111,6 @@ Sent when the Roblox server shuts down. Mark the session ended so its code can b
 
 ## Status
 
-- Roblox side: built in `Backend.luau` (mock mode is on until `BASE_URL` is set)
+- Roblox side: built in `BackendModule.luau` (mock mode is on until `BASE_URL` is set)
 - Backend routes and Tiger Data schema are implemented in `backend/`; set `DATABASE_URL` in the ignored local `backend/.env`, then run `npm run migrate` from `backend/` before starting the service
-- Results body is a draft until the round loop exists
+- Round loop: built in `RoundManager.server.luau`

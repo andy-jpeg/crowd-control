@@ -626,7 +626,7 @@ function EventsModule:Run(event)
 	if delay > 0 then
 		table.insert(pendingThreads, task.delay(delay, self[info.method], self, params))
 	else
-		task.spawn(self[info.method], self, params)
+		table.insert(pendingThreads, task.spawn(self[info.method], self, params)) -- tracked so Reset can stop events still running
 	end
 
 	return true, delay
@@ -634,6 +634,15 @@ end
 
 function EventsModule:GetCooldown(tier)
 	return math.max(0, (readyAt[tier] or 0) - os.clock())
+end
+
+function EventsModule:GetPodiumTop()
+	return Podium and getSurface().center or nil
+end
+
+function EventsModule:GetDisplayName(eventType)
+	local info = EVENTS[eventType]
+	return info and (string.gsub(info.method, "(%l)(%u)", "%1 %2")) or "an event" -- GiantBoulder -> Giant Boulder
 end
 
 function EventsModule:GetTier(eventType)

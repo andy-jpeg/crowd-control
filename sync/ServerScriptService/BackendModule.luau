@@ -1,6 +1,6 @@
 local HttpService = game:GetService("HttpService")
 
-local BASE_URL = ""
+local BASE_URL = "https://api.survivalofthe.fit"
 local MOCK = true
 local MOCK_EVENT_CHANCE = 0 -- chance per poll that mock mode sends a fake low_gravity event; 0 while testing events by hand
 local AUTH0_DOMAIN, AUTH0_AUDIENCE = "dev-m0jsbayhzkudzxmh.us.auth0.com", "https://api.crowdcontrol"
@@ -217,6 +217,14 @@ function Backend.sendResults(results)
 	end
 
 	return Backend.post(sessionPath("/results"), results)
+end
+
+function Backend.sendRoundState(roundState)
+	if not sessionCode then
+		return false
+	end
+
+	return Backend.post(sessionPath("/round"), roundState)
 end
 
 function Backend.queueTelemetry(event)
