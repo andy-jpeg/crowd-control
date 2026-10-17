@@ -40,9 +40,12 @@ For wildcard events, the server adds `title` and `announcer` strings written by 
 | ID | Name | What happens | Params (TBD by the Roblox pair) |
 |---|---|---|---|
 | `bombs` | Bombs | Bombs drop onto random spots on the podium, flash, then explode | `count` (1-8, default 5) |
-| `inverted_controls` | Inverted Controls | Movement controls flip | `duration` |
+| `inverted_controls` | Inverted Controls | W/S and A/D swap. Triggering it again while active restarts the timer | `duration` (3-20s, default 10) |
 | `low_gravity` | Low Gravity | Gravity drops | `duration` |
 | `ink_screen` | Squid Ink | Ink splats block the player's screen | `duration` |
+| `banana_peels` | Banana Peels | Banana peels appear at random spots on the podium. Stepping on one makes the player fall over (sit), then that peel disappears. Untouched peels disappear after 10 seconds | `count` (1-5, default 3) |
+| `spring_traps` | Spring Traps | Coiled springs appear on the podium. Stepping on one launches the player into the air with a small push in a random direction. Springs disappear after 10 seconds | `count` (1-6, default 3) |
+| `slime_puddles` | Slime Puddles | Slime puddles appear on the podium and slow the player down while they stand in one. Puddles disappear after 10 seconds | `count` (1-5, default 3) |
 
 ## Complex events
 
@@ -52,7 +55,7 @@ For wildcard events, the server adds `title` and `announcer` strings written by 
 | `floor_is_lava` | Floor Is Lava | Floor tiles turn to lava | `duration` |
 | `shrinking_podium` | Shrinking Podium | The podium shrinks over time | |
 | `tornado` | Tornado | A tornado sweeps the arena | `duration` |
-| `tsunami` | Tsunami | A wave washes over the arena | |
+| `tsunami` | Tsunami | A house appears in the middle of the podium, the player is teleported near the edge, and the whole podium turns red. After a short warning, a wave sweeps across. The only safe spot is the house roof | |
 | `flood_escape` | Flood Escape | Water rises and the player has to climb | |
 | `obby_chase` | Obby Chase | An obby appears with something chasing the player | |
 | `blob_fight` | Blob Fight | A giant blob spawns and the player fights it with a sword | |

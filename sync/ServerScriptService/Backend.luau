@@ -2,6 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local BASE_URL = ""
 local MOCK = true
+local MOCK_EVENT_CHANCE = 0 -- chance per poll that mock mode sends a fake low_gravity event; 0 while testing events by hand
 local AUTH_SECRET_NAME = "backend_token" -- key in the experience secrets store
 local MAX_RETRIES, RETRY_BACKOFF = 2, 0.5
 local FLUSH_INTERVAL, MAX_QUEUE = 5, 200
@@ -53,7 +54,7 @@ local function mockResponse(method, path)
 
 	if method == "GET" and string.match(path, "^/rooms/[^/]+/events") then
 		local events = {}
-		if random:NextNumber() < 0.3 then
+		if random:NextNumber() < MOCK_EVENT_CHANCE then
 			mockEventId += 1
 			table.insert(events, {id = mockEventId, type = "low_gravity", triggeredBy = "mock", params = {duration = 10}})
 		end
