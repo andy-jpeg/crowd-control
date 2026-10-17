@@ -111,6 +111,7 @@ Sent when the Roblox server shuts down. Mark the session ended so its code can b
 
 ## Status
 
-- Roblox side: built in `BackendModule.luau` (mock mode is on until `BASE_URL` is set)
+- Roblox side: built in `BackendModule.luau`, including `X-Session-Token`. Mock mode stays on until the routes below are live
+- Not built on the backend yet: `POST /sessions/:code/round`. Until it exists, the game's round-state updates get a 404 (harmless, but the web app can't open or close betting)
 - Backend routes and Tiger Data schema are implemented in `backend/`; set `DATABASE_URL` in the ignored local `backend/.env`, then run `npm run migrate` from `backend/` before starting the service
 - Round loop: built in `RoundManager.server.luau`

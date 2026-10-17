@@ -12,8 +12,8 @@ local ActionLog = ReplicatedStorage:WaitForChild("ActionLog")
 local TOTAL_ROUNDS, ROUND_TIME = 5, 120
 local INTERMISSION_TIME, RESULTS_TIME, SESSION_OVER_TIME = 15, 5, 10
 local POLL_INTERVAL, CHECK_INTERVAL = 3, 0.1
-local FALL_DEPTH = 20 -- studs below the podium top that count as falling off
-local SPAWN_SPREAD, SPAWN_HEIGHT = 4, 3.5
+local FALL_DEPTH = 8 -- studs below the podium top that count as falling off
+local SPAWN_SPREAD, SPAWN_HEIGHT, RESPAWN_DELAY = 4, 3.5, 3
 local MAX_NAME_LENGTH, FALLBACK_NAME = 20, "A spectator"
 
 local random = Random.new()
@@ -77,6 +77,8 @@ local function runEvent(event)
 end
 
 local function handleEvent(event)
+	print("[RoundManager] event " .. event.id .. ": " .. tostring(event.type) .. " from " .. tostring(event.triggeredBy) .. (roundState == "active" and "" or " (held until the round starts)"))
+
 	if roundState == "active" then
 		runEvent(event)
 	else
@@ -99,6 +101,40 @@ local function placeOnPodium(player)
 
 	local offset = Vector3.new(random:NextNumber(-SPAWN_SPREAD, SPAWN_SPREAD), SPAWN_HEIGHT, random:NextNumber(-SPAWN_SPREAD, SPAWN_SPREAD))
 	character:PivotTo(CFrame.new(top + offset))
+end
+
+local function watchCharacter(player, character)
+	local humanoid = character:WaitForChild("Humanoid")
+
+	humanoid.StateChanged:Connect(function(_, newState)
+		if newState == Enum.HumanoidStateType.Swimming then -- touching the water around the podium is a fall
+			humanoid.Health = 0
+		end
+	end)
+
+	humanoid.Died:Connect(function()
+		if roundState == "active" then -- dying mid-round means sitting out until the next intermission
+			return
+		end
+
+		task.delay(RESPAWN_DELAY, function()
+			if player.Parent and roundState ~= "active" and not getHumanoid(player) then
+				player:LoadCharacter()
+			end
+		end)
+	end)
+end
+
+local function setupPlayer(player)
+	player.CharacterAdded:Connect(function(character)
+		watchCharacter(player, character)
+	end)
+
+	if player.Character then
+		task.spawn(watchCharacter, player, player.Character)
+	end
+
+	player:LoadCharacter()
 end
 
 local function getEliminationCause(player, podiumTop)
@@ -249,12 +285,10 @@ end
 
 Players.CharacterAutoLoads = false -- the round loop decides when players respawn
 
-Players.PlayerAdded:Connect(function(player)
-	player:LoadCharacter()
-end)
+Players.PlayerAdded:Connect(setupPlayer)
 
 for _, player in Players:GetPlayers() do
-	task.spawn(player.LoadCharacter, player)
+	task.spawn(setupPlayer, player)
 end
 
 task.spawn(function()
