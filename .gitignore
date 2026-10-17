@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+/backend/swampy
 *.pem
 *keypair*.json
 id.json
