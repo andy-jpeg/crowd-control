@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
-import { profileService, type ProfileRecord, PROFILE_API_REQUIRED, UsernameTakenError } from './profileService'
+import { profileService, type ProfileRecord, UsernameTakenError } from './profileService'
 
 type OnboardingState = 'choice' | 'onboarding' | 'dashboard'
 
@@ -25,7 +25,11 @@ function validateUsername(value: string) {
   return ''
 }
 
-export function AuthPanel() {
+interface AuthPanelProps {
+  onJoinSession?: () => void
+}
+
+export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
   const {
     isLoading,
     isAuthenticated,
@@ -209,29 +213,26 @@ export function AuthPanel() {
 
   return (
     <div className="auth-card">
-      <h2>Dashboard</h2>
+      <h2>Spectator Profile</h2>
       <p>
-        Welcome back, <strong>{profile?.username ?? user?.nickname ?? user?.email}</strong>
+        Welcome back, <strong>@{profile?.username ?? user?.nickname ?? 'Spectator'}</strong>
       </p>
 
-      <div className="dashboard-box">
-        <div>
-          <span className="subtle-label">Auth0 user ID</span>
-          <strong>{user?.sub ?? 'Not available'}</strong>
+      <div className="stats-grid">
+        <div className="stat-card">
+          <span className="stat-label">Total Session Joined</span>
+          <strong className="stat-value">{profile?.totalSessionsJoined ?? 0}</strong>
         </div>
-        <div>
-          <span className="subtle-label">Saved username</span>
-          <strong>{profile?.username ?? 'Not set'}</strong>
+        <div className="stat-card">
+          <span className="stat-label">Overall Tokens Spent</span>
+          <strong className="stat-value">{profile?.overallTokensSpent ?? 0}</strong>
         </div>
       </div>
 
-      <div className="auth-actions">
+      <div className="auth-actions auth-stack">
+        <button type="button" onClick={() => onJoinSession?.()}>Join Session</button>
         <button type="button" className="secondary" onClick={handleLogout}>Log out</button>
       </div>
-
-      <p className="auth-note">
-        Required profile API contract for the backend partner: {PROFILE_API_REQUIRED.get} and {PROFILE_API_REQUIRED.saveUsername}. Use the verified Auth0 user ID in the profile record, not the email address. Never store passwords in the app or database.
-      </p>
     </div>
   )
 }
