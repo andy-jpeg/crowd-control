@@ -3,6 +3,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Backend = require(ServerScriptService.Backend)
 local EventsModule = require(ServerScriptService.EventsModule)
 
+Backend.checkAuth()
+
 local POLL_INTERVAL = 3
 
 local success, sessionCode = Backend.createSession()

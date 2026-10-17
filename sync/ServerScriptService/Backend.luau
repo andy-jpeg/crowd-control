@@ -3,7 +3,9 @@ local HttpService = game:GetService("HttpService")
 local BASE_URL = ""
 local MOCK = true
 local MOCK_EVENT_CHANCE = 0 -- chance per poll that mock mode sends a fake low_gravity event; 0 while testing events by hand
-local AUTH_SECRET_NAME = "backend_token" -- key in the experience secrets store
+local AUTH0_DOMAIN, AUTH0_AUDIENCE = "dev-m0jsbayhzkudzxmh.us.auth0.com", "https://api.crowdcontrol"
+local AUTH0_SECRET_NAME = "auth0_basic" -- base64 of clientId:clientSecret, in the experience secrets store
+local TOKEN_REFRESH_MARGIN = 60 -- get a new token this many seconds before the old one expires
 local CODE_ALPHABET, CODE_LENGTH, MAX_CODE_ATTEMPTS = "ABCDEFGHJKLMNPQRSTUVWXYZ", 4, 5 -- no I or O so codes can't be misread as 1 or 0
 local MAX_RETRIES, RETRY_BACKOFF = 2, 0.5
 local FLUSH_INTERVAL, MAX_QUEUE = 5, 200
@@ -11,7 +13,7 @@ local FLUSH_INTERVAL, MAX_QUEUE = 5, 200
 local Backend = {}
 
 local random = Random.new()
-local authHeader = nil
+local accessToken, tokenExpiresAt, isFetchingToken = nil, 0, false
 local sessionCode = nil
 local telemetryQueue = {}
 local isFlushing = false
@@ -23,21 +25,44 @@ local function trimQueue()
 	end
 end
 
-local function getAuthHeader()
-	if authHeader then
-		return authHeader
-	end
-
-	local success, secret = pcall(function()
-		return HttpService:GetSecret(AUTH_SECRET_NAME)
+local function fetchAccessToken()
+	local success, response = pcall(function()
+		return HttpService:RequestAsync({
+			Url = "https://" .. AUTH0_DOMAIN .. "/oauth/token",
+			Method = "POST",
+			Headers = {
+				["Content-Type"] = "application/json",
+				Authorization = HttpService:GetSecret(AUTH0_SECRET_NAME):AddPrefix("Basic "),
+			},
+			Body = HttpService:JSONEncode({grant_type = "client_credentials", audience = AUTH0_AUDIENCE}),
+		})
 	end)
-	if success then
-		authHeader = secret:AddPrefix("Bearer ")
-	else
-		warn("[Backend] could not read secret " .. AUTH_SECRET_NAME .. ": " .. tostring(secret))
+
+	if not success or not response.Success then
+		warn("[Backend] Auth0 token request failed: " .. (success and response.StatusCode .. " " .. response.Body or tostring(response)))
+		return nil
 	end
 
-	return authHeader
+	local data = HttpService:JSONDecode(response.Body)
+	accessToken, tokenExpiresAt = data.access_token, os.time() + (data.expires_in or 0)
+
+	return accessToken
+end
+
+local function getAccessToken()
+	while isFetchingToken do -- another request is already getting a token, so wait for it instead of asking twice
+		task.wait()
+	end
+
+	if accessToken and os.time() < tokenExpiresAt - TOKEN_REFRESH_MARGIN then
+		return accessToken
+	end
+
+	isFetchingToken = true
+	local token = fetchAccessToken()
+	isFetchingToken = false
+
+	return token
 end
 
 local function generateCode()
@@ -82,10 +107,15 @@ local function request(method, path, body)
 		return true, data, statusCode
 	end
 
-	local headers = {["Content-Type"] = "application/json", Authorization = getAuthHeader()}
-
 	local lastError, lastStatus = nil, nil
 	for attempt = 1, MAX_RETRIES + 1 do
+		local token = getAccessToken()
+		if not token then
+			return false, "no Auth0 token", nil
+		end
+
+		local headers = {["Content-Type"] = "application/json", Authorization = "Bearer " .. token}
+
 		local sent, response = pcall(function()
 			return HttpService:RequestAsync({
 				Url = BASE_URL .. path,
@@ -104,6 +134,11 @@ local function request(method, path, body)
 
 		lastStatus = sent and response.StatusCode or nil
 		lastError = sent and (response.StatusCode .. " " .. response.StatusMessage) or response
+
+		if lastStatus == 401 and attempt == 1 then -- token was rejected, so throw it away and retry once with a fresh one
+			accessToken = nil
+			continue
+		end
 
 		if not shouldRetry(lastStatus) then
 			break
@@ -146,6 +181,17 @@ function Backend.createSession()
 
 	warn("[Backend] couldn't find a free session code after " .. MAX_CODE_ATTEMPTS .. " tries")
 	return false, nil
+end
+
+function Backend.checkAuth()
+	local token = getAccessToken()
+	if token then
+		print("[Backend] Auth0 token OK, expires in " .. tokenExpiresAt - os.time() .. "s")
+	else
+		warn("[Backend] couldn't get an Auth0 token")
+	end
+
+	return token ~= nil
 end
 
 function Backend.getSessionCode()

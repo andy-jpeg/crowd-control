@@ -5,7 +5,11 @@ The contract between the Roblox game server (`sync/ServerScriptService/Backend.l
 ## Basics
 
 - All requests and responses are JSON
-- The game server sends `Authorization: Bearer <token>` on every request (Auth0 machine-to-machine token, stored in the experience's secrets store). The backend rejects requests without a valid token once Auth0 is set up
+- The game server sends `Authorization: Bearer <token>` on every request. The token is an Auth0 machine-to-machine access token the game gets itself (client credentials grant) and refreshes before it expires
+  - Auth0 domain: `dev-m0jsbayhzkudzxmh.us.auth0.com`
+  - Audience (API identifier): `https://api.crowdcontrol`
+  - Verify it with `express-oauth2-jwt-bearer`: `auth({ issuerBaseURL: "https://dev-m0jsbayhzkudzxmh.us.auth0.com/", audience: "https://api.crowdcontrol" })` on every `/sessions` route
+  - Missing or invalid token → `401`. The game drops its token and retries once with a fresh one, so don't return `401` for anything else (use `403` for "valid token, not allowed")
 - Roblox can't reach `localhost`, so the backend needs a public **HTTPS** URL
 - The game retries network errors, `429`, and `5xx` responses a couple of times. It never retries other `4xx` responses
 
