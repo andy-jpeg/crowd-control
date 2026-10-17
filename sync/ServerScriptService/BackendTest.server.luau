@@ -5,13 +5,13 @@ local EventsModule = require(ServerScriptService.EventsModule)
 
 local POLL_INTERVAL = 3
 
-local success, roomCode = Backend.createRoom()
+local success, sessionCode = Backend.createSession()
 if not success then
-	warn("[BackendTest] createRoom failed")
+	warn("[BackendTest] createSession failed")
 	return
 end
 
-print("[BackendTest] room code: " .. roomCode)
+print("[BackendTest] session code: " .. sessionCode)
 
 Backend.queueTelemetry({type = "test", message = "backend test started"})
 
@@ -20,7 +20,7 @@ local lastEventId = 0
 while true do
 	task.wait(POLL_INTERVAL)
 
-	local polled, events = Backend.pollEvents(roomCode, lastEventId)
+	local polled, events = Backend.pollEvents(lastEventId)
 	if polled then
 		for _, event in events do
 			print("[BackendTest] event " .. event.id .. ": " .. tostring(event.type))

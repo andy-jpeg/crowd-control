@@ -1,0 +1,77 @@
+# Roblox ↔ backend API
+
+The contract between the Roblox game server (`sync/ServerScriptService/Backend.luau`) and the backend (`backend/`). Change both sides in the same commit.
+
+## Basics
+
+- All requests and responses are JSON
+- The game server sends `Authorization: Bearer <token>` on every request (Auth0 machine-to-machine token, stored in the experience's secrets store). The backend rejects requests without a valid token once Auth0 is set up
+- Roblox can't reach `localhost`, so the backend needs a public **HTTPS** URL
+- The game retries network errors, `429`, and `5xx` responses a couple of times. It never retries other `4xx` responses
+
+## Session codes
+
+- One Roblox server = one session. The **session ID is the 4-letter code** the Roblox server generates and shows on screen. Spectators type the same code into the web app to join
+- Codes are 4 uppercase letters from `ABCDEFGHJKLMNPQRSTUVWXYZ` (no `I` or `O`, so they can't be misread as `1` or `0`)
+- The backend should treat codes as case-insensitive when spectators type them, but store them uppercase
+
+## Routes
+
+### `POST /sessions`: register a new session
+
+Sent once when a Roblox server starts.
+
+```json
+{ "sessionId": "KWPZ", "jobId": "<game.JobId>", "placeId": 123456 }
+```
+
+- **201 Created** if the code was free. Body can be empty or echo `{ "sessionId": "KWPZ" }`
+- **409 Conflict** if an active session already uses that code. The game picks a new code and tries again (up to 5 times)
+
+`jobId` is an empty string and `placeId` is `0` when testing in Studio without publishing.
+
+### `GET /sessions/:code/events?since=<id>`: poll for events to run
+
+The game polls this every few seconds. Return every event for the session with `id` greater than `since`, oldest first.
+
+```json
+{
+  "events": [
+    { "id": 42, "type": "bombs", "triggeredBy": "username", "params": { "count": 3 } }
+  ]
+}
+```
+
+Event types, params, prices, limits, and cooldowns are defined in `shared/events.md`. The backend enforces all of them before an event is added here.
+
+### `POST /sessions/:code/telemetry`: gameplay events for Tiger Data
+
+Sent in batches every few seconds. `at` is a Unix timestamp in seconds (with decimals) from the Roblox server's clock.
+
+```json
+{
+  "events": [
+    { "type": "event_received", "eventId": 42, "at": 1792214400.25 }
+  ]
+}
+```
+
+Telemetry types will grow as gameplay is built. Store unknown types as-is rather than rejecting them.
+
+### `POST /sessions/:code/results`: round results
+
+Sent when a round ends. Used to settle bracket bets and pay out tokens. Draft shape:
+
+```json
+{ "round": 3, "survivalSeconds": 74.2, "survivedFullRound": false }
+```
+
+### `POST /sessions/:code/end`: session over
+
+Sent when the Roblox server shuts down. Mark the session ended so its code can be reused and spectators see that the game is over.
+
+## Status
+
+- Roblox side: built in `Backend.luau` (mock mode is on until `BASE_URL` is set)
+- Backend side: not built yet
+- Results body is a draft until the round loop exists

@@ -6,6 +6,7 @@ local TweenService = game:GetService("TweenService")
 local Assets, Podium = ServerStorage:FindFirstChild("Assets"), workspace:FindFirstChild("Podium")
 
 local InvertControls = ReplicatedStorage:FindFirstChild("InvertControls")
+local InkScreen = ReplicatedStorage:FindFirstChild("InkScreen")
 
 local DEFAULT_GRAVITY = workspace.Gravity
 local COOLDOWNS = {basic = 0, complex = 30}
@@ -24,6 +25,8 @@ local SPRING_SIZE, SPRING_LAUNCH_SPEED, SPRING_PUSH_SPEED, SPRING_COOLDOWN = 4, 
 local SPRING_HEIGHT, SPRING_COIL_TURNS, SPRING_COIL_SEGMENTS = 1.8, 3, 12
 local SLIME_WALKSPEED, SLIME_CHECK_HEIGHT, SLIME_CHECK_INTERVAL = 6, 4, 0.1
 local TRAP_EDGE_PADDING, TRAP_LIFETIME = 2, 10
+local SHRINK_WARNING_TIME, SHRINK_TIME, SHRINK_GROW_TIME, SHRINK_SCALE = 2, 5, 3, 0.6
+local PODIUM_SIZE, PODIUM_COLOR = Podium and Podium.Size, Podium and Podium.Color
 local INDICATOR_COLOR, INDICATOR_TRANSPARENCY = Color3.fromRGB(255, 40, 40), 0.6
 
 local EVENTS = {
@@ -37,7 +40,7 @@ local EVENTS = {
 
 	giant_boulder = {method = "GiantBoulder", tier = "complex", params = {duration = {default = 30, min = 15, max = 45}}},
 	floor_is_lava = {method = "FloorIsLava", tier = "complex", params = {duration = {default = 15, min = 5, max = 30}}},
-	shrinking_podium = {method = "ShrinkingPodium", tier = "complex", params = {}},
+	shrinking_podium = {method = "ShrinkingPodium", tier = "complex", params = {duration = {default = 15, min = 5, max = 25}}},
 	tornado = {method = "Tornado", tier = "complex", params = {duration = {default = 15, min = 5, max = 30}}},
 	tsunami = {method = "Tsunami", tier = "complex", params = {}},
 	flood_escape = {method = "FloodEscape", tier = "complex", params = {}},
@@ -48,7 +51,8 @@ local EVENTS = {
 local EventsModule = {}
 
 local random = Random.new()
-local lowGravityId, invertId = 0, 0
+local lowGravityId, invertId, shrinkId = 0, 0, 0
+local podiumTween = nil
 local readyAt = {basic = 0, complex = 0}
 local pendingThreads = {}
 local slimePuddles, slowedHumanoids, slimeLoopRunning = {}, {}, false
@@ -572,6 +576,23 @@ local function placeSlimePuddle(template)
 	startSlimeLoop()
 end
 
+local function getShrunkSize(scale)
+	if Podium.Shape == Enum.PartType.Cylinder then -- a cylinder's length runs along X, so its top is the Y/Z circle
+		return Vector3.new(PODIUM_SIZE.X, PODIUM_SIZE.Y * scale, PODIUM_SIZE.Z * scale)
+	end
+
+	return Vector3.new(PODIUM_SIZE.X * scale, PODIUM_SIZE.Y, PODIUM_SIZE.Z * scale)
+end
+
+local function playPodiumTween(tweenInfo, goal)
+	if podiumTween then
+		podiumTween:Cancel()
+	end
+
+	podiumTween = TweenService:Create(Podium, tweenInfo, goal)
+	podiumTween:Play()
+end
+
 local function cleanParams(info, rawParams)
 	local params = {}
 
@@ -635,6 +656,16 @@ function EventsModule:Reset()
 
 	invertId += 1
 	InvertControls:FireAllClients(false)
+
+	InkScreen:FireAllClients(0)
+
+	shrinkId += 1
+	if podiumTween then
+		podiumTween:Cancel()
+	end
+	if Podium then
+		Podium.Size, Podium.Color = PODIUM_SIZE, PODIUM_COLOR
+	end
 end
 
 function EventsModule:Bombs(params)
@@ -730,7 +761,7 @@ function EventsModule:SlimePuddles(params)
 end
 
 function EventsModule:InkScreen(params)
-	notBuilt("InkScreen")
+	InkScreen:FireAllClients(params.duration)
 end
 
 function EventsModule:FloorIsLava(params)
@@ -738,7 +769,35 @@ function EventsModule:FloorIsLava(params)
 end
 
 function EventsModule:ShrinkingPodium(params)
-	notBuilt("ShrinkingPodium")
+	if not Podium then
+		warn("[EventsModule] ShrinkingPodium needs workspace.Podium")
+		return
+	end
+
+	shrinkId += 1
+	local thisId = shrinkId
+
+	local flashCount = math.max(1, math.floor(SHRINK_WARNING_TIME / 0.5))
+	local tweenInfo1 = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, flashCount - 1, true)
+	playPodiumTween(tweenInfo1, {Color = INDICATOR_COLOR})
+
+	task.wait(SHRINK_WARNING_TIME)
+	if shrinkId ~= thisId then
+		return
+	end
+
+	Podium.Color = PODIUM_COLOR
+
+	local tweenInfo2 = TweenInfo.new(SHRINK_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+	playPodiumTween(tweenInfo2, {Size = getShrunkSize(SHRINK_SCALE)})
+
+	task.wait(SHRINK_TIME + params.duration)
+	if shrinkId ~= thisId then -- a newer ShrinkingPodium or Reset owns the podium now
+		return
+	end
+
+	local tweenInfo3 = TweenInfo.new(SHRINK_GROW_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	playPodiumTween(tweenInfo3, {Size = PODIUM_SIZE})
 end
 
 function EventsModule:Tornado(params)
