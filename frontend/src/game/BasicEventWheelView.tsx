@@ -45,11 +45,9 @@ export function BasicEventWheelView({
   tokens,
   userPrediction,
   spectatorName,
-  onSetTokens,
   onAddTokens,
   correctPredictions = 0,
   onTriggerEvent,
-  onBackToVote,
   onNextRound,
   onEndSession,
   roundState,
@@ -444,51 +442,6 @@ export function BasicEventWheelView({
           <p className="wheel-instruction">
             Scroll or swipe wheel • Tap center to trigger
           </p>
-        )}
-
-        {/* Demo / Test Controls */}
-        <div className="wheel-demo-controls">
-          <button
-            type="button"
-            className="dev-nav-btn dev-reset-btn"
-            onClick={() => onSetTokens?.(0)}
-          >
-            ⚠️ Set Tokens to 0 (Test "Not enough tokens")
-          </button>
-        </div>
-
-        {currentRound < totalRounds && onNextRound && (
-          <button
-            type="button"
-            className="dev-nav-btn"
-            style={{
-              marginTop: '0.35rem',
-              background: 'var(--cc-accent)',
-              color: 'var(--cc-on-accent)',
-              border: 'none',
-              fontWeight: 700,
-            }}
-            onClick={onNextRound}
-          >
-            ⏭️ Next Round: Round {currentRound + 1} of {totalRounds} (Complex Event Vote →)
-          </button>
-        )}
-
-        {currentRound >= totalRounds && onEndSession && (
-          <button
-            type="button"
-            className="dev-nav-btn"
-            style={{ marginTop: '0.35rem' }}
-            onClick={() => onEndSession(tokens)}
-          >
-            🏆 Finish Session → (Final Results)
-          </button>
-        )}
-
-        {onBackToVote && (
-          <button type="button" className="dev-nav-btn" onClick={onBackToVote}>
-            ← Back to 15s Vote Screen
-          </button>
         )}
       </div>
 

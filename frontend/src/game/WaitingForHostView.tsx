@@ -93,18 +93,6 @@ export function WaitingForHostView({
           </div>
         </div>
       </main>
-
-      {/* Footer test / skip button */}
-      <footer className="waiting-footer">
-        <button
-          type="button"
-          className="waiting-demo-btn"
-          onClick={onHostStart}
-          title="Simulate host starting round 1 intermission"
-        >
-          ⚡ Host Started Game (Continue →)
-        </button>
-      </footer>
     </div>
   )
 }
