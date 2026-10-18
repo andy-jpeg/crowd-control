@@ -639,6 +639,66 @@ test("rejects a locked duration event without charging or enqueueing the purchas
   assert.ok(statements.some((sql) => sql.includes("DELETE FROM event_locks") && sql.includes("interval '10 seconds'")));
 });
 
+test("allows purchasing a duration event after previous 10s lock has expired", async () => {
+  const statements: string[] = [];
+  const pool = mockPool((sql) => {
+    statements.push(sql);
+    if (sql.includes("FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 1, total_rounds: 5 }], rowCount: 1 };
+    }
+    if (sql.includes("FROM spectator_profiles p")) {
+      return {
+        rows: [{ id: "17", username: "crowd_user", token_balance: "80" }],
+        rowCount: 1
+      };
+    }
+    if (sql.includes("INSERT INTO event_commands")) {
+      return { rows: [{ id: "55" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO event_locks")) {
+      return { rows: [{ id: "9" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO token_ledger")) {
+      return { rows: [{ id: "12" }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT token_balance")) {
+      return { rows: [{ token_balance: "50" }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+  const spectatorAuth: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: "auth0|test-user" },
+      token: "verified-test-token"
+    };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth, spectatorAuth, allowAuth),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/sessions/KWPZ/purchase`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|test-user",
+          eventType: "ink_screen"
+        })
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        ok: true,
+        eventType: "ink_screen",
+        tokenBalance: 50
+      });
+    }
+  );
+  assert.ok(statements.includes("COMMIT"));
+  assert.ok(statements.some((sql) => sql.includes("INSERT INTO event_locks") && sql.includes("interval '10 seconds'")));
+});
+
 test("validates totalRounds on session creation (min 5, max 10)", async () => {
   const pool = mockPool((sql) => {
     if (sql.includes("INSERT INTO sessions")) {

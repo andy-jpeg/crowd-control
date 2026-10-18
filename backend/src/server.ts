@@ -1206,9 +1206,13 @@ export function createApp(
           [session.id, body.eventType]
         );
         const lock = await client.query(
-          `INSERT INTO event_locks (session_id, event_type, command_id)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (session_id, event_type) DO NOTHING
+          `INSERT INTO event_locks (session_id, event_type, command_id, reserved_at)
+           VALUES ($1, $2, $3, now())
+           ON CONFLICT (session_id, event_type)
+           DO UPDATE SET
+             command_id = EXCLUDED.command_id,
+             reserved_at = now()
+           WHERE event_locks.reserved_at <= now() - interval '10 seconds'
            RETURNING id`,
           [session.id, body.eventType, command.rows[0].id]
         );
