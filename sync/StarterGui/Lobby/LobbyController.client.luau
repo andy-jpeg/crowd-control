@@ -2,6 +2,7 @@ local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -20,6 +21,8 @@ local POP_STAGGER = 0.08
 local EXIT_TIME, START_SHRINK_TIME, EXIT_MARGIN = 0.45, 0.3, 20
 local LEAVE_TIMEOUT = 5
 local HOVER_SCALE, HOVER_TIME = 1.1, 0.15
+local LOBBY_MUSIC_ID, ROUND_MUSIC_ID = "rbxassetid://1841647093", "rbxassetid://1837849285" -- Life in an Elevator, Night Vision
+local MUSIC_VOLUME, MUSIC_FADE_TIME = 0.4, 1.5
 local START_SWAY_ANGLE, START_SWAY_TIME, START_PULSE_SCALE, START_PULSE_TIME = 2.5, 2.6, 1.035, 1.8 -- calmer than the logo (5, 2, 1.06, 1.4)
 local EMPTY_TEXT = "Waiting for spectators...\nJoin at survivalofthe.fit"
 local FALLBACK_NAME = "A spectator"
@@ -36,6 +39,7 @@ local SLIDER_TIME = 0.12
 local popGoal, shrinkGoal = {Scale = 1}, {Scale = 0}
 local startGoal1 = {Rotation = START_SWAY_ANGLE}
 local hoverGoal1, hoverGoal2 = {Scale = HOVER_SCALE}, {Scale = 1}
+local musicGoal1, musicGoal2 = {Volume = MUSIC_VOLUME}, {Volume = 0}
 local knobGoal1, knobGoal2 = {Scale = KNOB_PRESS_SCALE}, {Scale = 1}
 
 local isShown = false
@@ -189,6 +193,18 @@ local Header, List, Empty = findPart(Spectators, "Header"), findPart(Spectators,
 local RoundsLabel, Track, Fill, Knob = findPart(Rounds, "RoundsLabel"), findPart(Rounds, "Track"), findPart(Rounds, "Fill"), findPart(Rounds, "Knob")
 local Hitbox = Rounds:FindFirstChild("Hitbox", true) or Track -- without a Hitbox, the track itself is the drag area
 local KnobScale = Knob and (Knob:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", Knob))
+
+local function createMusic(name, soundId)
+	local Music = Instance.new("Sound")
+	Music.Name, Music.SoundId = name, soundId
+	Music.Looped, Music.Volume = true, 0
+	Music.Parent = SoundService -- made on the client, so only this player hears it
+	return Music
+end
+
+local LobbyMusic = createMusic("LobbyMusic", LOBBY_MUSIC_ID)
+local RoundMusic = createMusic("RoundMusic", ROUND_MUSIC_ID)
+local currentMusic = nil
 
 local popElements = {CodeImage, Code, Rounds, Spectators, Start}
 local exitGroups = {
@@ -403,6 +419,48 @@ local function animateStart()
 	startTween2:Play()
 end
 
+local function playMusic(Music) -- crossfades into Music, or into silence when it's nil
+	if currentMusic == Music then return end
+	local Previous = currentMusic
+	currentMusic = Music
+
+	local tweenInfo = TweenInfo.new(MUSIC_FADE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+	if Previous then
+		local fadeOutTween = TweenService:Create(Previous, tweenInfo, musicGoal2)
+
+		fadeOutTween:Play()
+		fadeOutTween.Completed:Connect(function(playbackState)
+			if playbackState == Enum.PlaybackState.Completed and currentMusic ~= Previous then
+				Previous:Stop()
+			end
+		end)
+	end
+
+	if Music then
+		if not Music.IsPlaying then
+			Music.TimePosition = 0
+			Music:Play()
+		end
+		local fadeInTween = TweenService:Create(Music, tweenInfo, musicGoal1)
+
+		fadeInTween:Play()
+	end
+end
+
+local function updateMusic()
+	local roundState = ReplicatedStorage:GetAttribute("RoundState")
+	if roundState == "lobby" then
+		if not isLeaving then -- Start already switched to the round music
+			playMusic(LobbyMusic)
+		end
+	elseif roundState == nil or roundState == "menu" then
+		playMusic(nil)
+	else
+		playMusic(RoundMusic)
+	end
+end
+
 local function updateCode()
 	local code = ReplicatedStorage:GetAttribute("SessionCode")
 	Code.Text = (code and code ~= "") and string.format(CODE_FORMAT, code) or NO_CODE
@@ -452,6 +510,7 @@ if Start then
 		player:SetAttribute("UncoverPosition", getClickPosition(inputObject)) -- the cover shrinks back into the Start button
 		player:SetAttribute("LeavingLobby", true) -- the menu script sends the logo up too
 		leaveLobby()
+		playMusic(RoundMusic) -- fades in with the transition
 
 		local id = showId
 		task.delay(EXIT_TIME, function()
@@ -462,6 +521,7 @@ if Start then
 				isLeaving = false
 				resetPositions()
 				player:SetAttribute("LeavingLobby", false)
+				playMusic(LobbyMusic)
 				for index, element in popElements do
 					popIn(element, (index - 1) * POP_STAGGER)
 				end
@@ -527,5 +587,7 @@ if Start then
 		setStartHovered(false)
 	end)
 end
+ReplicatedStorage:GetAttributeChangedSignal("RoundState"):Connect(updateMusic)
 updateSpectators()
 updateLobby()
+updateMusic()
