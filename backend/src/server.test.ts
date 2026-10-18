@@ -8,7 +8,8 @@ import {
   createApp,
   getLongestSurvivorIds,
   getTimeBracket,
-  normalizeSessionCode
+  normalizeSessionCode,
+  watchRewardKeys
 } from "./server.js";
 
 async function withServer(
@@ -702,15 +703,35 @@ test("updates round and totalRounds via POST /sessions/:code/round", async () =>
       });
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), { ok: true, round: 2, totalRounds: 8 });
+
+      const lobby = await fetch(`${baseUrl}/sessions/KWPZ/round`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-session-token": "00000000-0000-4000-8000-000000000001"
+        },
+        body: JSON.stringify({ round: 0, totalRounds: 5, state: "lobby" })
+      });
+      assert.equal(lobby.status, 200);
+
+      const badState = await fetch(`${baseUrl}/sessions/KWPZ/round`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-session-token": "00000000-0000-4000-8000-000000000001"
+        },
+        body: JSON.stringify({ round: 1, state: "dancing" })
+      });
+      assert.equal(badState.status, 400);
     }
   );
-  assert.ok(statements.some((sql) => sql.includes("UPDATE sessions") && sql.includes("total_rounds")));
+  assert.ok(statements.some((sql) => sql.includes("UPDATE sessions") && sql.includes("total_rounds") && sql.includes("round_state")));
 });
 
 test("serves session details to spectators via GET /api/sessions/:code", async () => {
   const pool = mockPool((sql) => {
-    if (sql.includes("SELECT id, current_round, total_rounds, status FROM sessions")) {
-      return { rows: [{ id: "31", current_round: 3, total_rounds: 7, status: "active" }], rowCount: 1 };
+    if (sql.includes("SELECT id, current_round, total_rounds, status, round_state")) {
+      return { rows: [{ id: "31", current_round: 3, total_rounds: 7, status: "active", round_state: "active", round_ends_at: 1800000000.5 }], rowCount: 1 };
     }
     return { rows: [], rowCount: 0 };
   });
@@ -727,11 +748,18 @@ test("serves session details to spectators via GET /api/sessions/:code", async (
         headers: { authorization: "Bearer test" }
       });
       assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), {
+      const data = await response.json() as Record<string, unknown>;
+      assert.equal(typeof data.serverTime, "number");
+      delete data.serverTime;
+      assert.deepEqual(data, {
         sessionId: "31",
         currentRound: 3,
         totalRounds: 7,
-        status: "active"
+        status: "active",
+        roundState: "active",
+        endsAt: 1800000000.5,
+        tokenBalance: null,
+        correctPredictions: null
       });
     }
   );
@@ -793,3 +821,56 @@ test("returns live spectator list and token balances when Roblox polls events", 
 });
 
 
+
+test("pays watch rewards once per round and every 30s of an active round", () => {
+  const session = { id: "31", current_round: 2, round_state: "active", round_ends_at: 1000 };
+  assert.deepEqual(watchRewardKeys({ ...session, round_state: "intermission" }, "7", 900), []);
+
+  const early = watchRewardKeys(session, "7", 1000 - 110); // 10s in
+  assert.deepEqual(early.map((reward) => reward.key), ["round-reward:31:2:7"]);
+
+  const late = watchRewardKeys(session, "7", 1000 - 25); // 1:35 in
+  assert.deepEqual(late.map((reward) => reward.key), [
+    "round-reward:31:2:7",
+    "interval-reward:31:2:1:7",
+    "interval-reward:31:2:2:7",
+    "interval-reward:31:2:3:7"
+  ]);
+  assert.equal(watchRewardKeys(session, "7", 2000).length, 4); // never more than 3 intervals
+});
+
+test("grants watch rewards and returns the balance to a joined spectator", async () => {
+  const statements: string[] = [];
+  const pool = mockPool((sql) => {
+    statements.push(sql);
+    if (sql.includes("SELECT id, current_round, total_rounds, status, round_state")) {
+      return { rows: [{ id: "31", current_round: 1, total_rounds: 5, status: "active", round_state: "active", round_ends_at: Date.now() / 1000 + 60 }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT m.id") && sql.includes("auth0_subject")) {
+      return { rows: [{ id: "7" }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT m.token_balance")) {
+      return { rows: [{ token_balance: "140", correct_predictions: "1" }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+  const spectatorAuth: RequestHandler = (req, _res, next) => {
+    req.auth = { header: {}, payload: { sub: "auth0|test" }, token: "test" };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth, spectatorAuth, allowAuth),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/sessions/KWPZ`, {
+        headers: { authorization: "Bearer test" }
+      });
+      assert.equal(response.status, 200);
+      const data = await response.json() as Record<string, unknown>;
+      assert.equal(data.tokenBalance, 140);
+      assert.equal(data.correctPredictions, 1);
+    }
+  );
+  assert.ok(statements.some((sql) => sql.includes("INSERT INTO token_ledger") && sql.includes("ON CONFLICT (idempotency_key) DO NOTHING")));
+});

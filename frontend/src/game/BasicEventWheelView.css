@@ -680,3 +680,15 @@
   transform: scale(0.97);
 }
 
+
+/* Between rounds: the game isn't taking events, so the timer shows the phase and the wheel dims */
+.basic-timer.basic-timer-waiting {
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.wheel-stage.wheel-waiting {
+  opacity: 0.45;
+  filter: grayscale(0.4);
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}

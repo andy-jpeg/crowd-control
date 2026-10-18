@@ -27,10 +27,11 @@ interface BasicEventWheelViewProps {
   tokens: number
   userPrediction?: string | null
   spectatorName?: string
-  onAddTokens?: (amount: number) => void
   onSetTokens?: (amount: number) => void
-  onCorrectPrediction?: () => void
+  correctPredictions?: number // settled by the backend when a round's results come in
   onTriggerEvent: (eventId: string) => Promise<number>
+  roundState?: string // from the game; leave undefined to use the local demo timer
+  roundEndsAt?: number | null // when the current phase ends, in local milliseconds
   onBackToVote?: () => void
   onEndSession?: (finalTokens: number) => void
 }
@@ -42,13 +43,18 @@ export function BasicEventWheelView({
   tokens,
   userPrediction,
   spectatorName,
-  onAddTokens,
   onSetTokens,
-  onCorrectPrediction,
+  correctPredictions = 0,
   onTriggerEvent,
   onBackToVote,
   onEndSession,
+  roundState,
+  roundEndsAt,
 }: BasicEventWheelViewProps) {
+  const isLive = roundState !== undefined
+  const isRoundActive = !isLive || roundState === 'active'
+  const [phaseSecondsLeft, setPhaseSecondsLeft] = useState(0)
+
   // Center selection index in the wheel (defaults to center event index 3: Banana Peels)
   const [selectedIndex, setSelectedIndex] = useState(3)
 
@@ -98,65 +104,44 @@ export function BasicEventWheelView({
     prevTokensRef.current = tokens
   }, [tokens])
 
-  // At the start of every round, spectator gets 30 tokens
-  const roundAwardedRef = useRef<number | null>(null)
+  // Round (+30), every 30s of a round (+30) and correct prediction (+50) rewards are all paid by the backend.
+  // The new balance arrives through the tokens prop, and the gain popup above shows the increase.
+
+  // Show the win when the backend settles a correct prediction
+  const seenPredictionsRef = useRef(correctPredictions)
   useEffect(() => {
-    if (roundAwardedRef.current !== currentRound) {
-      roundAwardedRef.current = currentRound
-      const timer = setTimeout(() => {
-        onAddTokens?.(30)
-      }, 500)
+    if (correctPredictions > seenPredictionsRef.current) {
+      setPredictionAwarded(true)
+      setTriggerFeedback('Prediction Correct! +50')
+      const timer = setTimeout(() => setTriggerFeedback(null), 2500)
+      seenPredictionsRef.current = correctPredictions
       return () => clearTimeout(timer)
     }
-  }, [currentRound, onAddTokens])
+    seenPredictionsRef.current = correctPredictions
+  }, [correctPredictions])
 
-  // For each 30 second interval in a round, spectator earns 30 tokens (at 90s, 60s, 30s)
-  const awardedIntervalsRef = useRef<Set<number>>(new Set())
+
+  // Round timer countdown (2:00 -> 0:00) when there's no game to follow
   useEffect(() => {
-    awardedIntervalsRef.current = new Set()
-  }, [currentRound])
-
-  useEffect(() => {
-    if (secondsRemaining > 0 && secondsRemaining < 120 && secondsRemaining % 30 === 0) {
-      if (!awardedIntervalsRef.current.has(secondsRemaining)) {
-        awardedIntervalsRef.current.add(secondsRemaining)
-        onAddTokens?.(30)
-      }
-    }
-  }, [secondsRemaining, onAddTokens])
-
-  // Reward 50 tokens when prediction is won
-  const handleClaimPredictionWin = () => {
-    if (predictionAwarded) return
-    setPredictionAwarded(true)
-    onAddTokens?.(50)
-    onCorrectPrediction?.()
-    setTriggerFeedback('Prediction Correct! +50')
-    setTimeout(() => setTriggerFeedback(null), 2500)
-  }
-
-  // Auto-resolve prediction if user predicted a matching time bracket
-  useEffect(() => {
-    if (predictionAwarded || !userPrediction) return
-    if (
-      (userPrediction === '0:00 - 0:30' && secondsRemaining <= 90) ||
-      (userPrediction === '0:30 - 1:00' && secondsRemaining <= 60) ||
-      (userPrediction === '1:00 - 1:30' && secondsRemaining <= 30) ||
-      (userPrediction === '1:30 - 2:00' && secondsRemaining <= 5)
-    ) {
-      handleClaimPredictionWin()
-    }
-  }, [secondsRemaining, userPrediction, predictionAwarded])
-
-
-  // Round timer countdown (2:00 -> 0:00)
-  useEffect(() => {
-    if (secondsRemaining <= 0) return
+    if (isLive || secondsRemaining <= 0) return
     const timer = setInterval(() => {
       setSecondsRemaining((prev) => Math.max(0, prev - 1))
     }, 1000)
     return () => clearInterval(timer)
-  }, [secondsRemaining])
+  }, [isLive, secondsRemaining])
+
+  // Follow the game's round: count down to its end time, and hold at 2:00 between rounds
+  useEffect(() => {
+    if (!isLive) return
+    const update = () => {
+      const left = roundEndsAt ? Math.max(0, Math.ceil((roundEndsAt - Date.now()) / 1000)) : 0
+      setPhaseSecondsLeft(left)
+      setSecondsRemaining(roundState === 'active' ? Math.min(120, left) : 120)
+    }
+    update()
+    const timer = setInterval(update, 250)
+    return () => clearInterval(timer)
+  }, [isLive, roundState, roundEndsAt])
 
   // Cooldown countdown for duration events (10s -> 0s)
   useEffect(() => {
@@ -180,6 +165,12 @@ export function BasicEventWheelView({
   const minutes = Math.floor(secondsRemaining / 60)
   const seconds = secondsRemaining % 60
   const formattedTime = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`
+  const phaseClock = `${Math.floor(phaseSecondsLeft / 60)}:${String(phaseSecondsLeft % 60).padStart(2, '0')}`
+  const phaseLabel = isRoundActive ? null
+    : roundState === 'intermission' ? `Next round in ${phaseClock}`
+      : roundState === 'results' ? 'Round over'
+        : roundState === 'sessionOver' || roundState === 'ended' ? 'Session over'
+          : 'Waiting for host to start'
 
   // Wheel rotation functions - non-continuous bounded scrolling (stops at indices 0 and 6)
   const scrollUp = () => {
@@ -236,6 +227,11 @@ export function BasicEventWheelView({
     // Tap the center/selected spoke -> trigger the event!
     const currentEvent = BASIC_EVENTS[selectedIndex]
 
+    if (!isRoundActive) {
+      setPurchaseError('Events can be sent once the round starts.')
+      return
+    }
+
     // Check if spectator has enough tokens!
     if (tokens < currentEvent.cost) {
       showNotEnoughTokens()
@@ -291,7 +287,11 @@ export function BasicEventWheelView({
       {/* Sub-header info: Timer & Tokens */}
       <div className="basic-sub-header">
         <div className="basic-timer-group">
-          <span className="basic-timer">{formattedTime}</span>
+          {phaseLabel ? (
+            <span className="basic-timer basic-timer-waiting">{phaseLabel}</span>
+          ) : (
+            <span className="basic-timer">{formattedTime}</span>
+          )}
           <span className="basic-round-label">
             Round {currentRound}/{totalRounds}
           </span>
@@ -319,14 +319,9 @@ export function BasicEventWheelView({
             🎯 Predicted: <strong>{userPrediction}</strong>
           </span>
           {!predictionAwarded ? (
-            <button
-              type="button"
-              className="prediction-claim-pill"
-              onClick={handleClaimPredictionWin}
-              title="Claim +50 prediction reward"
-            >
-              Win +50 pts
-            </button>
+            <span className="prediction-claim-pill" title="Paid when the round's results come in">
+              Pays +50 pts if right
+            </span>
           ) : (
             <span className="prediction-won-pill">Won (+50 pts)</span>
           )}
@@ -334,7 +329,7 @@ export function BasicEventWheelView({
       )}
 
       {/* Main Wheel Area */}
-      <div className="wheel-stage">
+      <div className={`wheel-stage ${isRoundActive ? '' : 'wheel-waiting'}`}>
         {/* The Circular Rim (Arc) - larger and empty */}
         <div className="wheel-arc" />
 
@@ -414,20 +409,6 @@ export function BasicEventWheelView({
 
         {/* Demo / Test Controls */}
         <div className="wheel-demo-controls">
-          <button
-            type="button"
-            className="dev-nav-btn"
-            onClick={() => onAddTokens?.(30)}
-          >
-            ⏱️ +30 Tokens (Interval / Round)
-          </button>
-          <button
-            type="button"
-            className="dev-nav-btn"
-            onClick={handleClaimPredictionWin}
-          >
-            🏆 +50 Tokens (Correct Prediction)
-          </button>
           <button
             type="button"
             className="dev-nav-btn dev-reset-btn"
