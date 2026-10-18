@@ -10,6 +10,8 @@ local EventLog = script.Parent
 local ActionLog = ReplicatedStorage:WaitForChild("ActionLog")
 
 local TITLE_FORMAT = '<font color="#C35D2A">%s</font> spawns in <b>%s</b>!'
+local NAME_FORMAT = '<font color="#C35D2A">%s</font>'
+local MAX_NAMES = 3 -- past this it says "& 2 others"
 local MAX_ENTRIES = 2 -- older cards leave early when more events pile up
 local BASIC_TIME, COMPLEX_TIME, NOTICE_TIME = 4, 7, 5 -- how long a card stays up
 local ENTER_TIME, EXIT_TIME = 0.35, 0.3
@@ -158,6 +160,23 @@ local function escape(text) -- names and event titles go inside rich text
 	return (string.gsub(tostring(text), "[&<>]", {["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;"}))
 end
 
+local function joinNames(names) -- "a", "a & b", "a, b & c", each name in orange like "[name] spawns in"
+	local shown = {}
+	for index = 1, math.min(#names, MAX_NAMES) do
+		shown[index] = string.format(NAME_FORMAT, escape(names[index]))
+	end
+
+	local extra = #names - #shown
+	if extra > 0 then
+		table.insert(shown, extra == 1 and "1 other" or extra .. " others")
+	end
+	if #shown == 1 then
+		return shown[1]
+	end
+
+	return table.concat(shown, ", ", 1, #shown - 1) .. " &amp; " .. shown[#shown]
+end
+
 local function getFadeTargets(Entry) -- every transparency the card uses, so it can fade as one piece
 	local targets = {}
 	for _, item in {Entry, table.unpack(Entry:GetDescendants())} do
@@ -228,7 +247,8 @@ local function addEntry(payload)
 	local Title, Tip = Entry:FindFirstChild("Title", true), Entry:FindFirstChild("Tip", true)
 	if Title then
 		if isNotice then
-			Title.Text = "<b>" .. escape(payload.title or "") .. "</b>" -- round updates are plain text, not "[name] spawns in"
+			local names = type(payload.names) == "table" and #payload.names > 0 and joinNames(payload.names) .. " " or ""
+			Title.Text = "<b>" .. names .. escape(payload.title or "") .. "</b>" -- round updates are plain text, not "[name] spawns in"
 		else
 			Title.Text = string.format(TITLE_FORMAT, escape(payload.name or "A spectator"), escape(payload.event or "an event"))
 		end

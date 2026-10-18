@@ -433,7 +433,7 @@ local function createRow(name, tokens, order)
 	addCorner(Row, UDim.new(0, 8))
 	addStroke(Row, 2)
 
-	local Name = createText("Name", name, 18, TEXT_COLOR, nil, LIST_FONT)
+	local Name = createText("Name", name, 18, TEXT_COLOR) -- Nunito, the rest of the list keeps the code label's font
 	Name.Position = UDim2.fromOffset(10, 0)
 	Name.Size = UDim2.new(0.7, -10, 1, 0)
 	Name.Parent = Row
