@@ -140,7 +140,6 @@ export function ComplexVoteView({
         </div>
         <div className="vote-status-bar">
           <span className="vote-timer">{formattedTime}</span>
-          <div className="vote-circle-badge" title="Session active" />
         </div>
       </header>
 
