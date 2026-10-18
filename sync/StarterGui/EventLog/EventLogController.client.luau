@@ -14,6 +14,9 @@ local TITLE_FORMAT = '<font color="#C35D2A">%s</font> spawns in <b>%s</b>!'
 local NAME_FORMAT = '<font color="#C35D2A">%s</font>'
 local MAX_NAMES = 3 -- past this it says "& 2 others"
 local WHISTLE_ID, WHISTLE_VOLUME = "rbxassetid://129649904589836", 1 -- plays when a round starts
+local ALERT_SOUND_ID, ALERT_VOLUME, ALERT_GAP = "rbxassetid://130017098772572", 1, 0.15 -- same as the spectator join sound, at most one every 0.15s
+local DAMAGE_COLOR, DAMAGE_EDGE, DAMAGE_FADE_TIME = Color3.fromRGB(200, 20, 20), 0.2, 0.6 -- DAMAGE_EDGE is how far in from each edge the red reaches
+local DAMAGE_MIN_FLASH, DAMAGE_MAX_FLASH = 0.25, 0.75 -- how strong the flash gets, from a scratch up to losing half your health
 local MAX_ENTRIES = 2 -- older cards leave early when more events pile up
 local BASIC_TIME, COMPLEX_TIME, NOTICE_TIME = 4, 7, 5 -- how long a card stays up
 local ENTER_TIME, EXIT_TIME = 0.35, 0.3
@@ -33,6 +36,11 @@ local entries = {}
 local isTimerShown = false
 local lastSecond = nil
 local entryCount = 0
+local lastAlertAt = 0
+
+local AlertSound = Instance.new("Sound")
+AlertSound.Name, AlertSound.SoundId, AlertSound.Volume = "AlertSound", ALERT_SOUND_ID, ALERT_VOLUME
+AlertSound.Parent = SoundService
 
 local function useNunito(root, skip) -- swaps every text element to Nunito, keeping how bold it is
 	for _, item in root:GetDescendants() do
@@ -277,6 +285,12 @@ local function addEntry(payload)
 	popTween:Play()
 	fade(entry.targets, tweenInfo2, true)
 
+	if os.clock() - lastAlertAt >= ALERT_GAP then -- a burst of events plays one sound, not a pile of them
+		lastAlertAt = os.clock()
+		AlertSound.TimePosition = 0
+		AlertSound:Play()
+	end
+
 	while #entries > MAX_ENTRIES do -- too many at once, so the oldest steps aside
 		removeEntry(entries[1])
 	end
@@ -373,6 +387,70 @@ task.spawn(function() -- hide Roblox's health bar, it sits where the timer is
 		task.wait(0.5) -- the core UI can still be loading right after joining
 	end
 end)
+
+local OldFlash = PlayerGui:FindFirstChild("DamageFlash")
+if OldFlash then
+	OldFlash:Destroy() -- this script restarted, so don't stack a second one
+end
+
+local DamageFlash = Instance.new("ScreenGui") -- Roblox's own red flash went away with the health bar, so this replaces it
+DamageFlash.Name = "DamageFlash"
+DamageFlash.IgnoreGuiInset, DamageFlash.ResetOnSpawn = true, false
+DamageFlash.DisplayOrder = 0 -- under the alerts, timer and menus
+DamageFlash.Parent = PlayerGui
+
+local damageEdges = {}
+for _, side in {
+	{name = "Top", size = UDim2.fromScale(1, DAMAGE_EDGE), position = UDim2.fromScale(0, 0), rotation = 90},
+	{name = "Bottom", size = UDim2.fromScale(1, DAMAGE_EDGE), position = UDim2.fromScale(0, 1 - DAMAGE_EDGE), rotation = -90},
+	{name = "Left", size = UDim2.fromScale(DAMAGE_EDGE, 1), position = UDim2.fromScale(0, 0), rotation = 0},
+	{name = "Right", size = UDim2.fromScale(DAMAGE_EDGE, 1), position = UDim2.fromScale(1 - DAMAGE_EDGE, 0), rotation = 180},
+} do
+	local Edge = Instance.new("Frame")
+	Edge.Name = side.name
+	Edge.Size, Edge.Position = side.size, side.position
+	Edge.BackgroundColor3, Edge.BackgroundTransparency, Edge.BorderSizePixel = DAMAGE_COLOR, 1, 0
+
+	local UIGradient = Instance.new("UIGradient")
+	UIGradient.Rotation = side.rotation -- solid at the screen edge, fading out toward the middle
+	UIGradient.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)})
+	UIGradient.Parent = Edge
+
+	Edge.Parent = DamageFlash
+	table.insert(damageEdges, Edge)
+end
+
+local function flashDamage(amount, maxHealth)
+	local strength = math.clamp(amount / math.max(maxHealth, 1) * 2, 0, 1) -- half your health in one hit is the strongest flash
+	local transparency = 1 - (DAMAGE_MIN_FLASH + (DAMAGE_MAX_FLASH - DAMAGE_MIN_FLASH) * strength)
+
+	local tweenInfo = TweenInfo.new(DAMAGE_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	for _, Edge in damageEdges do
+		Edge.BackgroundTransparency = math.min(Edge.BackgroundTransparency, transparency) -- a second hit mid-fade never makes it dimmer
+		local fadeTween = TweenService:Create(Edge, tweenInfo, {BackgroundTransparency = 1})
+
+		fadeTween:Play()
+	end
+end
+
+local function watchHealth(character)
+	local humanoid = character:WaitForChild("Humanoid", 10)
+	if not humanoid then return end
+
+	local lastHealth = humanoid.Health
+	humanoid.HealthChanged:Connect(function(health)
+		if health < lastHealth then
+			flashDamage(lastHealth - health, humanoid.MaxHealth)
+		end
+		lastHealth = health
+	end)
+end
+
+player.CharacterAdded:Connect(watchHealth)
+if player.Character then
+	task.spawn(watchHealth, player.Character)
+end
 
 ActionLog.OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
