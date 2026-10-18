@@ -28,6 +28,7 @@ interface BasicEventWheelViewProps {
   userPrediction?: string | null
   spectatorName?: string
   onSetTokens?: (amount: number) => void
+  onAddTokens?: (amount: number) => void // only used while the backend doesn't report rounds
   correctPredictions?: number // settled by the backend when a round's results come in
   onTriggerEvent: (eventId: string) => Promise<number>
   roundState?: string // from the game; leave undefined to use the local demo timer
@@ -44,6 +45,7 @@ export function BasicEventWheelView({
   userPrediction,
   spectatorName,
   onSetTokens,
+  onAddTokens,
   correctPredictions = 0,
   onTriggerEvent,
   onBackToVote,
@@ -106,6 +108,22 @@ export function BasicEventWheelView({
 
   // Round (+30), every 30s of a round (+30) and correct prediction (+50) rewards are all paid by the backend.
   // The new balance arrives through the tokens prop, and the gain popup above shows the increase.
+
+  // +30 every 30s of a round (at 1:30, 1:00 and 0:30 left). The updated backend pays these itself,
+  // so they're only added here while it isn't reporting rounds (isLive is false)
+  const awardedIntervalsRef = useRef<Set<number>>(new Set())
+  useEffect(() => {
+    awardedIntervalsRef.current = new Set()
+  }, [currentRound])
+
+  useEffect(() => {
+    if (isLive) return
+    if (secondsRemaining > 0 && secondsRemaining < 120 && secondsRemaining % 30 === 0 &&
+        !awardedIntervalsRef.current.has(secondsRemaining)) {
+      awardedIntervalsRef.current.add(secondsRemaining)
+      onAddTokens?.(30)
+    }
+  }, [isLive, secondsRemaining, onAddTokens])
 
   // Show the win when the backend settles a correct prediction
   const seenPredictionsRef = useRef(correctPredictions)

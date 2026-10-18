@@ -22,6 +22,7 @@ const apiAudience = 'https://api.crowdcontrol'
 const redirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI ?? `${window.location.origin}/`
 
 const ROUND_POLL_MS = 3000
+const STARTED_STATES = new Set(['intermission', 'active', 'results']) // the game has left the lobby
 
 function readAuth0Subject(subject: unknown): string | null {
   return typeof subject === 'string' && subject.length > 0 ? subject : null
@@ -39,7 +40,7 @@ function SpectatorApp() {
   const [userPrediction, setUserPrediction] = useState<string | null>(null)
   const [correctPredictions, setCorrectPredictions] = useState(0)
   // The game's round, so the wheel's timer matches Roblox instead of counting on its own
-  const [roundState, setRoundState] = useState('lobby')
+  const [roundState, setRoundState] = useState<string | undefined>('lobby') // undefined: the backend doesn't report rounds
   const [roundEndsAt, setRoundEndsAt] = useState<number | null>(null)
 
   const getSpectatorIdentity = useCallback(async (): Promise<{ token: string; sub: string }> => {
@@ -99,11 +100,11 @@ function SpectatorApp() {
         const clockOffset = Date.now() - info.serverTime * 1000
         setCurrentRound(info.currentRound)
         setTotalRounds(info.totalRounds)
-        setRoundState(info.roundState)
+        setRoundState(info.roundState) // an older backend doesn't send it, which puts the wheel back on its own timer
         setRoundEndsAt(info.endsAt === null ? null : info.endsAt * 1000 + clockOffset)
-        if (info.tokenBalance !== null) setTokens(info.tokenBalance) // rewards are paid by the backend, so its balance is the real one
-        if (info.correctPredictions !== null) setCorrectPredictions(info.correctPredictions)
-        if (currentView === 'waiting' && info.roundState !== 'lobby') setCurrentView('vote') // the host pressed Start
+        if (typeof info.tokenBalance === 'number') setTokens(info.tokenBalance) // rewards are paid by the backend, so its balance is the real one
+        if (typeof info.correctPredictions === 'number') setCorrectPredictions(info.correctPredictions) // an older backend leaves both out
+        if (currentView === 'waiting' && (info.roundState === undefined || STARTED_STATES.has(info.roundState))) setCurrentView('vote') // the host pressed Start (or the backend can't tell us)
       } catch (err) {
         if (cancelled) return
         if (err instanceof ApiError && err.status === 404) {
@@ -218,6 +219,7 @@ function SpectatorApp() {
           roundEndsAt={roundEndsAt}
           correctPredictions={correctPredictions}
           onSetTokens={(amount) => setTokens(amount)}
+          onAddTokens={(amount) => setTokens((prev) => prev + amount)}
           onBackToVote={() => setCurrentView('vote')}
           onEndSession={(endTokens) => {
             setTokens(endTokens)
