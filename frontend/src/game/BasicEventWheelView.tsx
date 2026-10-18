@@ -49,12 +49,35 @@ export function BasicEventWheelView({
   // Cooldown tracker for duration events (10 seconds)
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({})
 
-  // Feedback animation when a button is pressed
+  // Trigger feedback toast
   const [triggerFeedback, setTriggerFeedback] = useState<string | null>(null)
 
   // Touch gesture tracking for wheel swipe
   const touchStartY = useRef<number | null>(null)
   const isDragging = useRef(false)
+
+  // Floating token gain animation state: { id, amount }
+  const [tokenGain, setTokenGain] = useState<{ id: number; amount: number } | null>(null)
+  const prevTokensRef = useRef(tokens)
+
+  // Trigger floating gain popup whenever tokens increase
+  useEffect(() => {
+    if (tokens > prevTokensRef.current) {
+      const amount = tokens - prevTokensRef.current
+      setTokenGain({ id: Date.now(), amount })
+      const timeout = setTimeout(() => setTokenGain(null), 1800)
+      prevTokensRef.current = tokens
+      return () => clearTimeout(timeout)
+    }
+    prevTokensRef.current = tokens
+  }, [tokens])
+
+  // Periodic +30 token reward every 30 seconds during round (at 90s, 60s, 30s)
+  useEffect(() => {
+    if (secondsRemaining > 0 && secondsRemaining < 120 && secondsRemaining % 30 === 0) {
+      setTokens((prev) => prev + 30)
+    }
+  }, [secondsRemaining])
 
   // Round timer countdown (2:00 -> 0:00)
   useEffect(() => {
@@ -189,7 +212,16 @@ export function BasicEventWheelView({
 
         <div className="basic-token-group">
           <div className="basic-token-badge" />
-          <span className="basic-token-count">{tokens}</span>
+          <span className={`basic-token-count ${tokenGain ? 'pulse' : ''}`}>{tokens}</span>
+
+          {/* Floating Gain Animation: + [O] 30 */}
+          {tokenGain && (
+            <div key={tokenGain.id} className="token-gain-popup">
+              <span className="token-gain-plus">+</span>
+              <div className="token-gain-mini-badge" />
+              <span className="token-gain-amount">{tokenGain.amount}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -272,6 +304,24 @@ export function BasicEventWheelView({
             Scroll or swipe wheel • Tap center to trigger
           </p>
         )}
+
+        {/* Demo buttons to test token reward animations */}
+        <div className="token-demo-controls">
+          <button
+            type="button"
+            className="demo-gain-btn"
+            onClick={() => setTokens((prev) => prev + 30)}
+          >
+            +30 Tokens (Demo)
+          </button>
+          <button
+            type="button"
+            className="demo-gain-btn"
+            onClick={() => setTokens((prev) => prev + 50)}
+          >
+            +50 Tokens (Demo)
+          </button>
+        </div>
 
         {onBackToVote && (
           <button type="button" className="dev-nav-btn" onClick={onBackToVote}>

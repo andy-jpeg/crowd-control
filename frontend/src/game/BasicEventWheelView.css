@@ -61,6 +61,7 @@
 }
 
 .basic-token-group {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -75,9 +76,88 @@
 }
 
 .basic-token-count {
-  font-size: 1.35rem;
+  font-size: 2rem;
   font-weight: 700;
+  line-height: 1;
   color: var(--cc-text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  display: inline-block;
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.basic-token-count.pulse {
+  animation: counterPulse 0.4s cubic-bezier(0.17, 0.89, 0.32, 1.28);
+}
+
+@keyframes counterPulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25); color: var(--cc-accent); }
+  100% { transform: scale(1); }
+}
+
+/* Floating Gain Animation under token counter: + [O] 30 */
+.token-gain-popup {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  pointer-events: none;
+  z-index: 50;
+  white-space: nowrap;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.2));
+  animation: floatDownFade 1.8s ease-out forwards;
+}
+
+.token-gain-plus {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--cc-accent);
+  line-height: 1;
+}
+
+.token-gain-mini-badge {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--cc-surface);
+  border: 1.5px solid var(--cc-border-color);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.15);
+}
+
+.token-gain-amount {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--cc-accent);
+  line-height: 1;
+}
+
+@keyframes floatDownFade {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.85);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.08);
+  }
+  30% {
+    transform: translateY(0px) scale(1);
+  }
+  75% {
+    opacity: 1;
+    transform: translateY(3px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.9);
+  }
 }
 
 /* Main wheel stage */
@@ -382,4 +462,34 @@
   display: block;
   height: 36px;
   width: auto;
+}
+
+/* Token Demo Controls */
+.token-demo-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.demo-gain-btn {
+  background: rgba(195, 93, 42, 0.12) !important;
+  border: 1px dashed var(--cc-accent) !important;
+  color: var(--cc-accent) !important;
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  padding: 0.3rem 0.65rem !important;
+  border-radius: 14px !important;
+  cursor: pointer;
+  min-height: auto !important;
+  width: auto !important;
+  transition: all 0.15s ease;
+}
+
+.demo-gain-btn:hover {
+  background: var(--cc-accent) !important;
+  color: #ffffff !important;
+}
+
+.demo-gain-btn:active {
+  transform: scale(0.95);
 }

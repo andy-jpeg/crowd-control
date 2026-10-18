@@ -204,9 +204,7 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
           </button>
         </div>
 
-        <p className="auth-note">
-          Development mock: username persistence is currently handled by a replaceable frontend profile service while the backend and Tiger Data profile API are being built.
-        </p>
+        
       </div>
     )
   }
