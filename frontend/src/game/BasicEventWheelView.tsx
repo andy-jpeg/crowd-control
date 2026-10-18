@@ -57,6 +57,7 @@ interface BasicEventWheelViewProps {
   onBackToVote?: () => void
   onNextRound?: () => void
   onEndSession?: (finalTokens: number) => void
+  activeLocks?: Record<string, number>
 }
 
 export function BasicEventWheelView({
@@ -73,6 +74,7 @@ export function BasicEventWheelView({
   onEndSession,
   roundState,
   roundEndsAt,
+  activeLocks,
 }: BasicEventWheelViewProps) {
   const isLive = roundState !== undefined
   const isRoundActive = !isLive || roundState === 'active'
@@ -248,6 +250,22 @@ export function BasicEventWheelView({
     }, 1000)
     return () => clearInterval(timer)
   }, [])
+
+  // Sync incoming server locks from polling across all spectators
+  useEffect(() => {
+    if (!activeLocks) return
+    setCooldowns((prev) => {
+      const updated = { ...prev }
+      let changed = false
+      for (const [eventId, remaining] of Object.entries(activeLocks)) {
+        if (remaining > (updated[eventId] ?? 0)) {
+          updated[eventId] = remaining
+          changed = true
+        }
+      }
+      return changed ? updated : prev
+    })
+  }, [activeLocks])
 
   // Format mm:ss
   const minutes = Math.floor(secondsRemaining / 60)

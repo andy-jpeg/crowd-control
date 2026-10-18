@@ -779,7 +779,46 @@ test("serves session details to spectators via GET /api/sessions/:code", async (
         roundState: "active",
         endsAt: 1800000000.5,
         tokenBalance: null,
-        correctPredictions: null
+        correctPredictions: null,
+        activeLocks: {}
+      });
+    }
+  );
+});
+
+test("returns active event locks in GET /api/sessions/:code", async () => {
+  const pool = mockPool((sql) => {
+    if (sql.includes("SELECT id, current_round, total_rounds, status, round_state")) {
+      return { rows: [{ id: "31", current_round: 2, total_rounds: 5, status: "active", round_state: "active", round_ends_at: null }], rowCount: 1 };
+    }
+    if (sql.includes("FROM event_locks")) {
+      return {
+        rows: [
+          { event_type: "inverted_controls", seconds_left: 8 },
+          { event_type: "low_gravity", seconds_left: 4 }
+        ],
+        rowCount: 2
+      };
+    }
+    return { rows: [], rowCount: 0 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+  const spectatorAuth: RequestHandler = (req, _res, next) => {
+    req.auth = { header: {}, payload: { sub: "auth0|test" }, token: "test" };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth, spectatorAuth, allowAuth),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/sessions/KWPZ`, {
+        headers: { authorization: "Bearer test" }
+      });
+      assert.equal(response.status, 200);
+      const data = await response.json() as Record<string, unknown>;
+      assert.deepEqual(data.activeLocks, {
+        inverted_controls: 8,
+        low_gravity: 4
       });
     }
   );

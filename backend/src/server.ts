@@ -952,6 +952,22 @@ export function createApp(
           correctPredictions = Number(stats.rows[0]?.correct_predictions ?? 0);
         }
       }
+      // Fetch active event locks (10s duration events) for this session
+      const locksQuery = await client.query<{ event_type: string; seconds_left: number }>(
+        `SELECT event_type,
+                CEIL(GREATEST(0, 10 - EXTRACT(EPOCH FROM (now() - reserved_at))))::int AS seconds_left
+         FROM event_locks
+         WHERE session_id = $1
+           AND reserved_at > now() - interval '10 seconds'`,
+        [row.id]
+      );
+      const activeLocks: Record<string, number> = {};
+      for (const lock of locksQuery.rows) {
+        const seconds = Number(lock.seconds_left);
+        if (seconds > 0) {
+          activeLocks[lock.event_type] = seconds;
+        }
+      }
       await client.query("COMMIT");
 
       res.json({
@@ -963,7 +979,8 @@ export function createApp(
         endsAt: row.round_ends_at === null || row.round_ends_at === undefined ? null : Number(row.round_ends_at),
         serverTime: Date.now() / 1000,
         tokenBalance,
-        correctPredictions
+        correctPredictions,
+        activeLocks
       });
     } catch (error) {
       try {

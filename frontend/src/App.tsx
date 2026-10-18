@@ -45,6 +45,7 @@ function SpectatorApp() {
   // The game's round, so the wheel's timer matches Roblox instead of counting on its own
   const [roundState, setRoundState] = useState<string | undefined>('lobby') // undefined: the backend doesn't report rounds
   const [roundEndsAt, setRoundEndsAt] = useState<number | null>(null)
+  const [activeLocks, setActiveLocks] = useState<Record<string, number>>({})
 
   const getSpectatorIdentity = useCallback(async (): Promise<{ token: string; sub: string }> => {
     const sub: string = readAuth0Subject(user?.sub) ?? ''
@@ -112,10 +113,12 @@ function SpectatorApp() {
         setRoundEndsAt(info.endsAt === null ? null : info.endsAt * 1000 + clockOffset)
         if (typeof info.tokenBalance === 'number') setTokens(info.tokenBalance) // rewards are paid by the backend, so its balance is the real one
         if (typeof info.correctPredictions === 'number') setCorrectPredictions(info.correctPredictions) // an older backend leaves both out
+        if (info.activeLocks) setActiveLocks(info.activeLocks)
         if (currentView === 'waiting' && (info.roundState === undefined || STARTED_STATES.has(info.roundState))) {
           setCurrentView('vote') // the host pressed Start (or the backend can't tell us)
         } else if (currentView === 'wheel' && previousRound !== null && info.currentRound > previousRound && info.currentRound <= info.totalRounds) {
           setUserPrediction(null)
+          setActiveLocks({})
           setCurrentView('vote') // a new round: vote on its big event
         }
       } catch (err) {
@@ -252,6 +255,7 @@ function SpectatorApp() {
           roundState={roundState}
           roundEndsAt={roundEndsAt}
           correctPredictions={correctPredictions}
+          activeLocks={activeLocks}
           onSetTokens={(amount) => setTokens(amount)}
           onAddTokens={(amount) => setTokens((prev) => prev + amount)}
           onBackToVote={() => setCurrentView('vote')}
@@ -274,6 +278,7 @@ function SpectatorApp() {
           onJoinNewSession={() => {
             setTokens(50)
             setUserPrediction(null)
+            setActiveLocks({})
             setCorrectPredictions(0)
             setCurrentView('join')
           }}

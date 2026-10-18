@@ -40,6 +40,7 @@ export interface SessionInfo {
   serverTime: number; // the server's clock when it answered, to correct for a phone clock that's off
   tokenBalance: number | null; // includes watch rewards the backend just paid; null if not joined
   correctPredictions: number | null;
+  activeLocks?: Record<string, number>;
 }
 
 export interface PurchaseResult {
