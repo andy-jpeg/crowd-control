@@ -52,6 +52,7 @@ export function ComplexVoteView({
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [prediction, setPrediction] = useState<string>('')
   const [isLocked, setIsLocked] = useState(false)
+  const [exitHovered, setExitHovered] = useState(false)
 
   // Demo toggle for testing 1 player vs multiple players
   const [demoMultiPlayer, setDemoMultiPlayer] = useState(false)
@@ -89,8 +90,16 @@ export function ComplexVoteView({
   return (
     <div className="vote-container">
       {onLeaveSession && (
-        <button type="button" className="vote-back-link" onClick={onLeaveSession}>
-          ← Exit Session ({sessionCode})
+        <button
+          type="button"
+          className="vote-back-link"
+          onMouseEnter={() => setExitHovered(true)}
+          onMouseLeave={() => setExitHovered(false)}
+          onClick={onLeaveSession}
+        >
+          <span className={`vote-back-text ${exitHovered ? 'hovered' : ''}`}>
+            ← Exit Session ({sessionCode})
+          </span>
         </button>
       )}
 

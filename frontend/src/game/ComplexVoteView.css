@@ -12,22 +12,38 @@
 
 .vote-back-link {
   align-self: flex-start;
+  position: relative;
+  z-index: 100;
   background: transparent !important;
-  color: var(--cc-text-muted) !important;
   border: none !important;
-  font-size: 0.85rem !important;
-  font-weight: 600 !important;
-  padding: 0.25rem 0 !important;
-  margin-bottom: 0.25rem;
+  padding: 0.5rem 0 !important;
+  margin-bottom: 0.5rem;
   cursor: pointer !important;
   min-height: auto !important;
   width: auto !important;
   display: inline-block !important;
 }
 
-.vote-back-link:hover {
-  text-decoration: underline !important;
+.vote-back-text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--cc-text-muted);
+  display: inline-block;
+  padding-bottom: 2px;
+  border-bottom: var(--cc-border);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.vote-back-link:hover .vote-back-text,
+.vote-back-text.hovered {
   color: var(--cc-text) !important;
+  border-bottom: 2px solid var(--cc-border-color) !important;
+  text-decoration: underline !important;
+}
+
+.vote-back-link:active {
+  transform: translateX(-2px);
 }
 
 .vote-header {
