@@ -103,8 +103,8 @@
   right: 0;
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  margin-top: 0.15rem;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
   padding: 0;
   background: transparent;
   border: none;
@@ -116,15 +116,15 @@
 }
 
 .token-gain-plus {
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: 1.3rem;
+  font-weight: 700;
   color: var(--cc-accent);
   line-height: 1;
 }
 
 .token-gain-mini-badge {
-  width: 13px;
-  height: 13px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--cc-surface);
   border: 1.5px solid var(--cc-border-color);
@@ -132,8 +132,8 @@
 }
 
 .token-gain-amount {
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: 1.3rem;
+  font-weight: 700;
   color: var(--cc-accent);
   line-height: 1;
 }
