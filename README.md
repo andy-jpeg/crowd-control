@@ -164,7 +164,7 @@ sudo bash deploy-frontend.sh
 ## The Team
 
 Built with passion for **SwampHacks XII** by:
-* **Kush Palem** — Backend Development (Timescale Cloud / Tiger Data database architecture & schema, spectator endpoints, and backend-to-frontend connection)
+* **Kush** — Backend Development (Timescale Cloud / Tiger Data database architecture & schema, spectator endpoints, and backend-to-frontend connection)
 * **Diya** — Backend & Frontend Development (Express framework setup, Auth0 authentication & middleware, and React frontend development)
 * **Kaylee** — UI/UX & Graphic Design (User interface design, UX flow, and graphic design assets)
 * **Andy** — Game Development (Roblox simulation, Luau physics arena, and in-game client)
