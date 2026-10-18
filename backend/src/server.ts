@@ -225,13 +225,16 @@ async function settleRoundPredictions(
     spectator_id: string;
     prediction_type: "time_bracket" | "player";
     predicted_value: string;
+    username: string | null;
   }>(
-    `SELECT id, spectator_id, prediction_type, predicted_value
-     FROM spectator_predictions
-     WHERE session_id = $1 AND round_number = $2 AND settled = false
-     FOR UPDATE`,
+    `SELECT sp.id, sp.spectator_id, sp.prediction_type, sp.predicted_value, p.username
+     FROM spectator_predictions sp
+     LEFT JOIN spectator_profiles p ON p.id = sp.spectator_id
+     WHERE sp.session_id = $1 AND sp.round_number = $2 AND sp.settled = false
+     FOR UPDATE OF sp`,
     [sessionId, roundNumber]
   );
+  const winners: { username: string; type: "time_bracket" | "player" }[] = [];
 
   for (const prediction of predictions.rows) {
     const won = prediction.prediction_type === "time_bracket"
@@ -260,12 +263,17 @@ async function settleRoundPredictions(
           throw new Error("Winning spectator has no session membership for prediction reward");
         }
       }
+      if (prediction.username) {
+        winners.push({ username: prediction.username, type: prediction.prediction_type }); // the game announces these
+      }
     }
     await client.query(
       `UPDATE spectator_predictions SET settled = true, won = $2 WHERE id = $1`,
       [prediction.id, won]
     );
   }
+
+  return winners;
 }
 
 
@@ -715,7 +723,7 @@ export function createApp(
         }
         return;
       }
-      await settleRoundPredictions(
+      const winners = await settleRoundPredictions(
         client,
         session.id,
         body.round,
@@ -727,7 +735,7 @@ export function createApp(
         [session.id, body.round + 1]
       );
       await client.query("COMMIT");
-      res.status(201).json({ ok: true });
+      res.status(201).json({ ok: true, winners });
     } catch (error) {
       try {
         await client.query("ROLLBACK");

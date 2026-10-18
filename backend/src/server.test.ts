@@ -425,9 +425,9 @@ test("settles tied multiplayer predictions once and treats exact result retries 
     if (sql.includes("FROM spectator_predictions")) {
       return {
         rows: [
-          { id: "1", spectator_id: "10", prediction_type: "player", predicted_value: "200" },
-          { id: "2", spectator_id: "11", prediction_type: "player", predicted_value: "400" },
-          { id: "3", spectator_id: "12", prediction_type: "player", predicted_value: "300" }
+          { id: "1", spectator_id: "10", prediction_type: "player", predicted_value: "200", username: "andy" },
+          { id: "2", spectator_id: "11", prediction_type: "player", predicted_value: "400", username: "kush" },
+          { id: "3", spectator_id: "12", prediction_type: "player", predicted_value: "300", username: "diya" }
         ],
         rowCount: 3
       };
@@ -462,7 +462,13 @@ test("settles tied multiplayer predictions once and treats exact result retries 
       });
       const first = await sendResult();
       assert.equal(first.status, 201);
-      assert.deepEqual(await first.json(), { ok: true });
+      assert.deepEqual(await first.json(), {
+        ok: true,
+        winners: [
+          { username: "andy", type: "player" },
+          { username: "kush", type: "player" }
+        ]
+      });
 
       const retry = await sendResult();
       assert.equal(retry.status, 200);

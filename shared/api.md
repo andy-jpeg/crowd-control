@@ -106,7 +106,7 @@ Sent when a round ends. Used to settle bracket bets and pay out tokens. The back
 - `survivalSeconds` is rounded to 0.1s and capped at 60. With more than one player it's the longest survival
 - Brackets: `0:00 - 0:15`, `0:15 - 0:30`, `0:30 - 0:45`, `0:45 - 1:00`. Surviving the full round (`survivedFullRound: true`) counts as the last bracket
 - Falling off the podium counts as being eliminated
-- An exact retry returns success without inserting a second result; a conflicting result for the same round returns **409**. Single-player results settle predictions against the non-overlapping time brackets; `survivedFullRound: true` selects the final bracket. Multiplayer results use `players: [{ "playerId": "...", "survivalSeconds": 74.2 }]`; every player tied for maximum survival time is a winning prediction. Each winning spectator receives 50 tokens exactly once in the same transaction as the result.
+- An exact retry returns success without inserting a second result; a conflicting result for the same round returns **409**. Single-player results settle predictions against the non-overlapping time brackets; `survivedFullRound: true` selects the final bracket. Multiplayer results use `players: [{ "playerId": "...", "survivalSeconds": 74.2 }]`; every player tied for maximum survival time is a winning prediction. Each winning spectator receives 50 tokens exactly once in the same transaction as the result. The **201** reply lists them as `winners: [{ "username": "...", "type": "time_bracket" | "player" }]` so the game can announce them; an exact retry returns `{ "ok": true, "duplicate": true }` without the list.
 
 ### `POST /sessions/:code/end`: session over
 

@@ -17,6 +17,7 @@ local POLL_INTERVAL, CHECK_INTERVAL = 3, 0.1
 local FALL_DEPTH = 8 -- studs below the podium top that count as falling off
 local SPAWN_SPREAD, SPAWN_HEIGHT, RESPAWN_DELAY = 4, 3.5, 3
 local MAX_NAME_LENGTH, FALLBACK_NAME = 20, "A spectator"
+local MAX_WINNER_NAMES, PREDICTION_REWARD = 3, 50 -- the reward matches the backend's prediction payout
 local CROWD_TRIGGER, CROWD_NAME = "Spectators", "The crowd" -- voted complex events come from everyone
 
 local random = Random.new()
@@ -83,6 +84,47 @@ end
 
 local function announceNotice(title, tip) -- round updates in the action log, alongside the events
 	ActionLog:FireAllClients({tier = "notice", title = title, tip = tip})
+end
+
+local function joinNames(names) -- "a", "a & b", "a, b & c", then "a, b, c & 2 others" past the cap
+	local shown = {}
+	for index = 1, math.min(#names, MAX_WINNER_NAMES) do
+		shown[index] = names[index]
+	end
+
+	local extra = #names - #shown
+	if extra > 0 then
+		table.insert(shown, extra == 1 and "1 other" or extra .. " others")
+	end
+	if #shown == 1 then
+		return shown[1]
+	end
+
+	return table.concat(shown, ", ", 1, #shown - 1) .. " & " .. shown[#shown]
+end
+
+local function announceWinners(names, title)
+	if #names == 0 then return end
+	local reward = "+" .. PREDICTION_REWARD .. (#names == 1 and " tokens" or " tokens each")
+	announceNotice(joinNames(names) .. " " .. title, reward)
+end
+
+local function sendResults(results) -- the backend replies with who predicted the round right
+	local success, data = BackendModule.sendResults(results)
+	if not success or type(data) ~= "table" or type(data.winners) ~= "table" then return end
+
+	local timeWinners, playerWinners = {}, {}
+	for _, winner in data.winners do
+		if type(winner) == "table" then
+			local list = winner.type == "time_bracket" and timeWinners or winner.type == "player" and playerWinners
+			if list then
+				table.insert(list, filterName(winner.username))
+			end
+		end
+	end
+
+	announceWinners(timeWinners, "guessed the survival time correctly!")
+	announceWinners(playerWinners, "guessed who'd survive the longest!")
 end
 
 local function runEvent(event)
@@ -342,7 +384,7 @@ local function showResults(survivalSeconds)
 	setState("results", RESULTS_TIME)
 	reportState(RESULTS_TIME)
 
-	task.spawn(BackendModule.sendResults, results)
+	task.spawn(sendResults, results)
 	BackendModule.queueTelemetry({type = "round_end", round = currentRound, survivalSeconds = survivalSeconds})
 
 	task.wait(RESULTS_TIME)
