@@ -89,7 +89,9 @@ Sent by `RoundManager` every time the round state changes. Use it to open and cl
   - `"intermission"`: betting is open, the player is waiting on the podium
   - `"active"`: the 2:00 round is running, spectators can buy events
   - `"results"`: round over, results are on the way
-- `endsAt` is the Unix time in seconds when this state ends, so the web app can show a countdown
+- `round` is 0 in the lobby, then 1 through `totalRounds`. The session's current round never goes backward, so a late update can't undo the advance from `/results`
+- `endsAt` is the Unix time in seconds when this state ends, so the web app can show a countdown. It's left out in the lobby
+- The backend stores `state` and `endsAt` on the session (`round_state`, `round_ends_at`) and hands them to spectators through `GET /api/sessions/:code`
 - Intermissions are 15s. A round is 120s unless the player is eliminated early. Results show for 5s
 - Only accept event purchases while `state` is `"active"`. If one slips in late, the game holds it and runs it at the start of the next round
 
@@ -113,7 +115,7 @@ Sent when the Roblox server shuts down. Mark the session ended so its code can b
 ## Status
 
 - Roblox side: built in `BackendModule.luau`, including `X-Session-Token`. Mock mode stays on until the routes below are live
-- Not built on the backend yet: `POST /sessions/:code/round`. Until it exists, the game's round-state updates get a 404 (harmless, but the web app can't open or close betting)
+- `POST /sessions/:code/round` is built and stores the round state (needs migration `004_session_round_state.sql`)
 - Backend routes and Tiger Data schema are implemented in `backend/`; set `DATABASE_URL` in the ignored local `backend/.env`, then run `npm run migrate` from `backend/` before starting the service
 - Round loop: built in `RoundManager.server.luau`
 
@@ -122,6 +124,8 @@ Sent when the Roblox server shuts down. Mark the session ended so its code can b
 All spectator routes are under `/api` and require an Auth0 user access token. The `auth0UserId` in a request must match the verified token subject.
 
 - `POST /api/sessions/:code/join` creates/loads the profile and membership, and awards the +50 session-start balance once per membership.
+- `GET /api/sessions/:code` returns `{ sessionId, currentRound, totalRounds, status, roundState, endsAt, serverTime }`. `roundState` and `endsAt` are the game's latest report; `serverTime` is the backend's clock in Unix seconds so a phone with a wrong clock can still count down correctly. The web app polls this every 3s while a spectator is in a session, and a 404 means the game ended it.
+  - For a joined spectator it also returns `tokenBalance` and `correctPredictions`, and pays watch rewards while the round is `active`: +30 at 0:30, 1:00 and 1:30 into it (`interval_reward` in the ledger, each with an idempotency key so polling never pays twice). The +30 round reward is paid to everyone in the session by `POST /sessions/:code/round` when a round (1 or later) is reported. Correct predictions pay +50 when `/results` settles them. The web app no longer adds tokens on its own; it shows the backend's balance.
 - `POST /api/sessions/:code/vote` upserts the current-round complex-event vote.
 - `POST /api/sessions/:code/predict` upserts the current-round time-bracket or player prediction.
 - `GET /api/profile/me?auth0UserId=<Auth0 sub>` returns profile and lifetime totals.

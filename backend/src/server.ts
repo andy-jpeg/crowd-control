@@ -45,6 +45,7 @@ const basicEventIds = new Set([
   "ink_screen"
 ]);
 const lockedEventIds = new Set(["inverted_controls", "low_gravity", "ink_screen"]);
+const roundStates = new Set(["lobby", "intermission", "active", "results", "sessionOver"]);
 
 const requireRobloxAuth: RequestHandler = auth({
   issuerBaseURL: "https://dev-m0jsbayhzkudzxmh.us.auth0.com/",
@@ -267,6 +268,45 @@ async function settleRoundPredictions(
   }
 }
 
+
+type WatchedSession = {
+  id: string;
+  current_round: number;
+  round_state: string | null;
+  round_ends_at: number | string | null;
+};
+
+const ROUND_SECONDS = 120;
+const WATCH_REWARD_TOKENS = 30;
+const WATCH_REWARD_INTERVAL_SECONDS = 30;
+const MAX_INTERVAL_REWARDS = 3; // at 0:30, 1:00 and 1:30 into the round
+
+export function watchRewardKeys(session: WatchedSession, membershipId: string, nowSeconds: number) {
+  if (session.round_state !== "active") return [];
+  const round = session.current_round;
+  const rewards: Array<{ reason: string; key: string }> = []; // the +30 round reward is paid by POST /round
+  if (session.round_ends_at !== null && session.round_ends_at !== undefined) {
+    const remaining = Math.max(0, Number(session.round_ends_at) - nowSeconds);
+    const intervals = Math.min(MAX_INTERVAL_REWARDS, Math.floor((ROUND_SECONDS - remaining) / WATCH_REWARD_INTERVAL_SECONDS));
+    for (let interval = 1; interval <= intervals; interval++) {
+      rewards.push({ reason: "interval_reward", key: `interval-reward:${session.id}:${round}:${interval}:${membershipId}` });
+    }
+  }
+  return rewards;
+}
+
+async function grantWatchRewards(client: PoolClient, session: WatchedSession, membershipId: string) {
+  const rewards = watchRewardKeys(session, membershipId, Date.now() / 1000);
+  if (rewards.length === 0) return;
+  // the idempotency keys make every reward pay out once, however often the spectator polls
+  await client.query(
+    `INSERT INTO token_ledger (membership_id, delta, reason, idempotency_key)
+     SELECT $1::bigint, $2::bigint, reward.reason, reward.key
+     FROM unnest($3::text[], $4::text[]) AS reward(reason, key)
+     ON CONFLICT (idempotency_key) DO NOTHING`,
+    [membershipId, WATCH_REWARD_TOKENS, rewards.map((reward) => reward.reason), rewards.map((reward) => reward.key)]
+  );
+}
 
 export function createApp(
   pool: Pool,
@@ -500,8 +540,17 @@ export function createApp(
   sessions.post("/:code/round", async (req, res, next) => {
     const identity = readSessionIdentity(req);
     const body: unknown = req.body;
-    if (!identity || !isJsonObject(body) || !isPositiveInteger(body.round)) {
-      res.status(400).json({ error: "Expected a valid session code and positive round number" });
+    if (!identity || !isJsonObject(body) || !Number.isInteger(body.round) || Number(body.round) < 0) {
+      res.status(400).json({ error: "Expected a valid session code and a round number (0 in the lobby)" });
+      return;
+    }
+    if (body.state !== undefined && (typeof body.state !== "string" || !roundStates.has(body.state))) {
+      res.status(400).json({ error: "state must be lobby, intermission, active, results, or sessionOver" });
+      return;
+    }
+    if (body.endsAt !== undefined && body.endsAt !== null &&
+        (typeof body.endsAt !== "number" || !Number.isFinite(body.endsAt) || body.endsAt <= 0)) {
+      res.status(400).json({ error: "endsAt must be a Unix time in seconds" });
       return;
     }
     if (body.totalRounds !== undefined &&
@@ -522,20 +571,24 @@ export function createApp(
 
       await client.query(
         `UPDATE sessions
-         SET current_round = $2,
-             total_rounds = COALESCE($3, total_rounds)
+         SET current_round = GREATEST(current_round, $2),
+             total_rounds = COALESCE($3, total_rounds),
+             round_state = COALESCE($4, round_state),
+             round_ends_at = CASE WHEN $4::text IS NULL THEN round_ends_at ELSE to_timestamp($5::double precision) END
          WHERE id = $1`,
-        [session.id, body.round, body.totalRounds ?? null]
+        [session.id, body.round, body.totalRounds ?? null, body.state ?? null, body.endsAt ?? null]
       );
-      await client.query(
-        `INSERT INTO token_ledger (membership_id, delta, reason, idempotency_key)
-         SELECT id, 30, 'round_reward',
-                'round-reward:' || session_id::text || ':' || $2::text || ':' || spectator_id::text
-         FROM session_memberships
-         WHERE session_id = $1
-         ON CONFLICT (idempotency_key) DO NOTHING`,
-        [session.id, body.round]
-      );
+      if (Number(body.round) > 0) { // no round reward in the lobby (round 0)
+        await client.query(
+          `INSERT INTO token_ledger (membership_id, delta, reason, idempotency_key)
+           SELECT id, 30, 'round_reward',
+                  'round-reward:' || session_id::text || ':' || $2::text || ':' || spectator_id::text
+           FROM session_memberships
+           WHERE session_id = $1
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [session.id, body.round]
+        );
+      }
 
       if (body.state === "active") {
         const winningVote = await client.query<{ event_id: string }>(
@@ -564,7 +617,6 @@ export function createApp(
           }
         }
       }
-
       await client.query("COMMIT");
       res.json({ ok: true, round: body.round, totalRounds: body.totalRounds });
     } catch (error) {
@@ -841,24 +893,74 @@ export function createApp(
       res.status(400).json({ error: "Invalid session code" });
       return;
     }
+    const auth0UserId = typeof req.auth?.payload.sub === "string" ? req.auth.payload.sub : null;
+
+    const client = await pool.connect();
     try {
-      const session = await pool.query<{ id: string; current_round: number; total_rounds: number; status: string }>(
-        `SELECT id, current_round, total_rounds, status FROM sessions
-         WHERE session_code = $1 AND status = 'active'`,
+      await client.query("BEGIN");
+      const session = await client.query<WatchedSession & { total_rounds: number; status: string }>(
+        `SELECT id, current_round, total_rounds, status, round_state,
+                EXTRACT(EPOCH FROM round_ends_at)::double precision AS round_ends_at
+         FROM sessions
+         WHERE session_code = $1 AND status = 'active'
+         FOR SHARE`,
         [code]
       );
-      if (!session.rows[0]) {
+      const row = session.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
         res.status(404).json({ error: "Active session not found" });
         return;
       }
+
+      // Spectators earn tokens for watching: this route is polled every few seconds, so rewards are granted here
+      let tokenBalance: number | null = null;
+      let correctPredictions: number | null = null;
+      if (auth0UserId) {
+        const membership = await client.query<{ id: string }>(
+          `SELECT m.id
+           FROM session_memberships m
+           JOIN spectator_profiles p ON p.id = m.spectator_id
+           WHERE m.session_id = $1 AND p.auth0_subject = $2`,
+          [row.id, auth0UserId]
+        );
+        const membershipId = membership.rows[0]?.id;
+        if (membershipId) {
+          await grantWatchRewards(client, row, membershipId);
+          const stats = await client.query<{ token_balance: string; correct_predictions: string }>(
+            `SELECT m.token_balance,
+                    (SELECT count(*) FROM spectator_predictions sp
+                     WHERE sp.session_id = m.session_id AND sp.spectator_id = m.spectator_id AND sp.won) AS correct_predictions
+             FROM session_memberships m
+             WHERE m.id = $1`,
+            [membershipId]
+          );
+          tokenBalance = Number(stats.rows[0]?.token_balance ?? 0);
+          correctPredictions = Number(stats.rows[0]?.correct_predictions ?? 0);
+        }
+      }
+      await client.query("COMMIT");
+
       res.json({
-        sessionId: session.rows[0].id,
-        currentRound: session.rows[0].current_round,
-        totalRounds: Number(session.rows[0].total_rounds ?? 5),
-        status: session.rows[0].status
+        sessionId: row.id,
+        currentRound: row.current_round,
+        totalRounds: Number(row.total_rounds ?? 5),
+        status: row.status,
+        roundState: row.round_state ?? "lobby",
+        endsAt: row.round_ends_at === null || row.round_ends_at === undefined ? null : Number(row.round_ends_at),
+        serverTime: Date.now() / 1000,
+        tokenBalance,
+        correctPredictions
       });
     } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("[backend] session status rollback failed", rollbackError);
+      }
       next(error);
+    } finally {
+      client.release();
     }
   });
 

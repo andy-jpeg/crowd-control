@@ -3,6 +3,7 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import './App.css'
 import { AuthPanel } from './auth/AuthPanel'
 import {
+  ApiError,
   getSession,
   joinSession,
   purchaseBasicEvent,
@@ -20,6 +21,9 @@ const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID
 const apiAudience = 'https://api.crowdcontrol'
 const redirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI ?? `${window.location.origin}/`
 
+const ROUND_POLL_MS = 3000
+const STARTED_STATES = new Set(['intermission', 'active', 'results']) // the game has left the lobby
+
 function readAuth0Subject(subject: unknown): string | null {
   return typeof subject === 'string' && subject.length > 0 ? subject : null
 }
@@ -35,6 +39,9 @@ function SpectatorApp() {
   const [tokens, setTokens] = useState(50)
   const [userPrediction, setUserPrediction] = useState<string | null>(null)
   const [correctPredictions, setCorrectPredictions] = useState(0)
+  // The game's round, so the wheel's timer matches Roblox instead of counting on its own
+  const [roundState, setRoundState] = useState<string | undefined>('lobby') // undefined: the backend doesn't report rounds
+  const [roundEndsAt, setRoundEndsAt] = useState<number | null>(null)
 
   const getSpectatorIdentity = useCallback(async (): Promise<{ token: string; sub: string }> => {
     const sub: string = readAuth0Subject(user?.sub) ?? ''
@@ -72,28 +79,48 @@ function SpectatorApp() {
       setSpectatorName(joined.username || effectiveName)
       setCurrentRound(joined.currentRound)
       setTotalRounds(joined.totalRounds ?? 5)
-      setCurrentView('waiting')
+      setRoundState('lobby')
+      setRoundEndsAt(null)
+      setCurrentView('waiting') // the waiting page moves on by itself once the host presses Start
     } catch (err) {
-      console.warn('Backend API unreachable, proceeding in spectator demo mode:', err)
-      setSessionCode(code)
-      // When the spectator joins a session, they get 50 tokens
-      setTokens(50)
-      setSpectatorName(effectiveName)
-      setCurrentRound(1)
-      setTotalRounds(5)
-      setCurrentView('waiting')
+      console.warn('Join failed:', err)
+      throw err // the join screen shows the message, so a wrong code or blocked request can't look like it worked
     }
   }, [getSpectatorIdentity, user])
 
-  const handleCheckSessionStatus = useCallback(async (): Promise<string | null> => {
-    try {
-      const { token } = await getSpectatorIdentity()
-      const session = await getSession(sessionCode, token)
-      return session.status
-    } catch {
-      return null
+  useEffect(() => {
+    if (!sessionCode || (currentView !== 'waiting' && currentView !== 'vote' && currentView !== 'wheel')) return
+    let cancelled = false
+
+    const poll = async () => {
+      try {
+        const { token } = await getSpectatorIdentity()
+        const info = await getSession(sessionCode, token)
+        if (cancelled) return
+        const clockOffset = Date.now() - info.serverTime * 1000
+        setCurrentRound(info.currentRound)
+        setTotalRounds(info.totalRounds)
+        setRoundState(info.roundState) // an older backend doesn't send it, which puts the wheel back on its own timer
+        setRoundEndsAt(info.endsAt === null ? null : info.endsAt * 1000 + clockOffset)
+        if (typeof info.tokenBalance === 'number') setTokens(info.tokenBalance) // rewards are paid by the backend, so its balance is the real one
+        if (typeof info.correctPredictions === 'number') setCorrectPredictions(info.correctPredictions) // an older backend leaves both out
+        if (currentView === 'waiting' && (info.roundState === undefined || STARTED_STATES.has(info.roundState))) setCurrentView('vote') // the host pressed Start (or the backend can't tell us)
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 404) {
+          setRoundState('ended') // the game ended the session
+          setCurrentView('end')
+        }
+      }
     }
-  }, [getSpectatorIdentity, sessionCode])
+
+    poll()
+    const timer = setInterval(poll, ROUND_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [sessionCode, currentView, getSpectatorIdentity])
 
   const handleVoteEvent = useCallback(async (eventId: string) => {
     try {
@@ -123,12 +150,10 @@ function SpectatorApp() {
       setTokens(result.tokenBalance)
       return result.tokenBalance
     } catch (err) {
-      console.warn('Backend API unreachable, deducting tokens locally:', err)
-      const nextBalance = Math.max(0, tokens - 30)
-      setTokens(nextBalance)
-      return nextBalance
+      console.warn('Purchase failed:', err)
+      throw err // the wheel shows the message instead of pretending the event was sent
     }
-  }, [getSpectatorIdentity, sessionCode, tokens])
+  }, [getSpectatorIdentity, sessionCode])
 
   const handleVoteComplete = useCallback(async (selectedEventId: string | null, pred: string | null) => {
     if (selectedEventId) {
@@ -217,7 +242,6 @@ function SpectatorApp() {
           tokens={tokens}
           onHostStart={() => setCurrentView('vote')}
           onLeaveSession={() => setCurrentView('join')}
-          checkSessionStatus={handleCheckSessionStatus}
         />
       )}
 
@@ -243,9 +267,11 @@ function SpectatorApp() {
           tokens={tokens}
           userPrediction={userPrediction}
           spectatorName={spectatorName}
-          onAddTokens={(amount) => setTokens((prev) => prev + amount)}
+          roundState={roundState}
+          roundEndsAt={roundEndsAt}
+          correctPredictions={correctPredictions}
           onSetTokens={(amount) => setTokens(amount)}
-          onCorrectPrediction={() => setCorrectPredictions((prev) => prev + 1)}
+          onAddTokens={(amount) => setTokens((prev) => prev + amount)}
           onBackToVote={() => setCurrentView('vote')}
           onNextRound={handleNextRound}
           onEndSession={(endTokens) => {

@@ -35,6 +35,11 @@ export interface SessionInfo {
   currentRound: number;
   totalRounds: number;
   status: string;
+  roundState: string; // lobby, intermission, active, results, or sessionOver, as reported by the game
+  endsAt: number | null; // Unix seconds on the server's clock
+  serverTime: number; // the server's clock when it answered, to correct for a phone clock that's off
+  tokenBalance: number | null; // includes watch rewards the backend just paid; null if not joined
+  correctPredictions: number | null;
 }
 
 export interface PurchaseResult {
