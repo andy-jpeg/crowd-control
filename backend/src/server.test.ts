@@ -540,11 +540,12 @@ test("purchases a basic event transactionally and reserves its room-wide lock", 
   );
   assert.ok(statements.includes("BEGIN"));
   assert.ok(statements.includes("COMMIT"));
-  assert.ok(statements.some((sql) => sql.includes("INSERT INTO event_locks")));
+  assert.ok(statements.some((sql) => sql.includes("INSERT INTO event_commands")));
   assert.equal(ledgerValues[0]?.[0], "31");
   assert.equal(ledgerValues[0]?.[1], "17");
-  assert.match(String(ledgerValues[0]?.[2]), /^purchase:31:17:/);
-  assert.match(statements.find((sql) => sql.includes("INSERT INTO token_ledger")) ?? "", /-30, 'purchase'/);
+  assert.equal(ledgerValues[0]?.[2], -50);
+  assert.match(String(ledgerValues[0]?.[3]), /^purchase:31:17:/);
+  assert.equal(ledgerValues[0]?.[4], 50);
 });
 
 test("does not create a command or charge tokens when purchase balance is insufficient", async () => {
@@ -592,7 +593,7 @@ test("does not create a command or charge tokens when purchase balance is insuff
   assert.equal(statements.some((sql) => sql.includes("INSERT INTO token_ledger")), false);
 });
 
-test("rejects a locked duration event without charging or enqueueing the purchase", async () => {
+test("rejects 50-token events when balance is under 50", async () => {
   const statements: string[] = [];
   const pool = mockPool((sql) => {
     statements.push(sql);
@@ -601,15 +602,9 @@ test("rejects a locked duration event without charging or enqueueing the purchas
     }
     if (sql.includes("FROM spectator_profiles p")) {
       return {
-        rows: [{ id: "17", username: "crowd_user", token_balance: "80" }],
+        rows: [{ id: "17", username: "crowd_user", token_balance: "40" }],
         rowCount: 1
       };
-    }
-    if (sql.includes("INSERT INTO event_commands")) {
-      return { rows: [{ id: "55" }], rowCount: 1 };
-    }
-    if (sql.includes("INSERT INTO event_locks")) {
-      return { rows: [], rowCount: 0 };
     }
     return { rows: [], rowCount: 1 };
   });
@@ -634,18 +629,18 @@ test("rejects a locked duration event without charging or enqueueing the purchas
           eventType: "inverted_controls"
         })
       });
-      assert.equal(response.status, 409);
+      assert.equal(response.status, 400);
       assert.deepEqual(await response.json(), {
-        error: "Event is currently active or locked"
+        error: "Insufficient tokens"
       });
     }
   );
   assert.ok(statements.includes("ROLLBACK"));
+  assert.equal(statements.some((sql) => sql.includes("INSERT INTO event_commands")), false);
   assert.equal(statements.some((sql) => sql.includes("INSERT INTO token_ledger")), false);
-  assert.ok(statements.some((sql) => sql.includes("DELETE FROM event_locks") && sql.includes("interval '10 seconds'")));
 });
 
-test("allows purchasing a duration event after previous 10s lock has expired", async () => {
+test("allows purchasing 50-token events repeatedly without cooldown locks", async () => {
   const statements: string[] = [];
   const pool = mockPool((sql) => {
     statements.push(sql);
@@ -660,9 +655,6 @@ test("allows purchasing a duration event after previous 10s lock has expired", a
     }
     if (sql.includes("INSERT INTO event_commands")) {
       return { rows: [{ id: "55" }], rowCount: 1 };
-    }
-    if (sql.includes("INSERT INTO event_locks")) {
-      return { rows: [{ id: "9" }], rowCount: 1 };
     }
     if (sql.includes("INSERT INTO token_ledger")) {
       return { rows: [{ id: "12" }], rowCount: 1 };
@@ -702,7 +694,8 @@ test("allows purchasing a duration event after previous 10s lock has expired", a
     }
   );
   assert.ok(statements.includes("COMMIT"));
-  assert.ok(statements.some((sql) => sql.includes("INSERT INTO event_locks") && sql.includes("interval '10 seconds'")));
+  assert.ok(statements.some((sql) => sql.includes("INSERT INTO event_commands")));
+  assert.ok(statements.some((sql) => sql.includes("INSERT INTO token_ledger")));
 });
 
 test("validates totalRounds on session creation (min 5, max 10)", async () => {

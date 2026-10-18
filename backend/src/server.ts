@@ -44,7 +44,15 @@ const basicEventIds = new Set([
   "low_gravity",
   "ink_screen"
 ]);
-const lockedEventIds = new Set(["inverted_controls", "low_gravity", "ink_screen"]);
+const basicEventCosts: Record<string, number> = {
+  bombs: 30,
+  spring_traps: 30,
+  slime_puddles: 30,
+  banana_peels: 30,
+  inverted_controls: 50,
+  low_gravity: 50,
+  ink_screen: 50
+};
 const roundStates = new Set(["lobby", "intermission", "active", "results", "sessionOver"]);
 
 const requireRobloxAuth: RequestHandler = auth({
@@ -1195,7 +1203,8 @@ export function createApp(
         res.status(403).json({ error: "Join the session before purchasing an event" });
         return;
       }
-      if (Number(profile.token_balance) < 30) {
+      const eventCost = basicEventCosts[body.eventType] ?? 30;
+      if (Number(profile.token_balance) < eventCost) {
         await client.query("ROLLBACK");
         res.status(400).json({ error: "Insufficient tokens" });
         return;
@@ -1207,38 +1216,15 @@ export function createApp(
          RETURNING id`,
         [session.id, body.eventType, profile.username]
       );
-      if (lockedEventIds.has(body.eventType)) {
-        await client.query(
-          `DELETE FROM event_locks
-           WHERE session_id = $1 AND event_type = $2 AND reserved_at <= now() - interval '10 seconds'`,
-          [session.id, body.eventType]
-        );
-        const lock = await client.query(
-          `INSERT INTO event_locks (session_id, event_type, command_id, reserved_at)
-           VALUES ($1, $2, $3, now())
-           ON CONFLICT (session_id, event_type)
-           DO UPDATE SET
-             command_id = EXCLUDED.command_id,
-             reserved_at = now()
-           WHERE event_locks.reserved_at <= now() - interval '10 seconds'
-           RETURNING id`,
-          [session.id, body.eventType, command.rows[0].id]
-        );
-        if (!lock.rowCount) {
-          await client.query("ROLLBACK");
-          res.status(409).json({ error: "Event is currently active or locked" });
-          return;
-        }
-      }
 
       const idempotencyKey = `purchase:${session.id}:${profile.id}:${randomUUID()}`;
       const debit = await client.query(
         `INSERT INTO token_ledger (membership_id, delta, reason, idempotency_key)
-         SELECT m.id, -30, 'purchase', $3
+         SELECT m.id, $3, 'purchase', $4
          FROM session_memberships m
-         WHERE m.session_id = $1 AND m.spectator_id = $2 AND m.token_balance >= 30
+         WHERE m.session_id = $1 AND m.spectator_id = $2 AND m.token_balance >= $5
          RETURNING id`,
-        [session.id, profile.id, idempotencyKey]
+        [session.id, profile.id, -eventCost, idempotencyKey, eventCost]
       );
       if (!debit.rowCount) {
         await client.query("ROLLBACK");
