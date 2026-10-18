@@ -329,12 +329,15 @@ async function queueWinningComplexEvent(client: PoolClient, sessionId: string, r
      LIMIT 1`,
     [sessionId, round]
   );
-  if (!winningVote.rows[0]) return;
+
+  const complexEventList = Array.from(complexEventIds);
+  const fallbackEventId = complexEventList[Math.floor(Math.random() * complexEventList.length)] || "giant_boulder";
+  const eventIdToQueue = winningVote.rows[0]?.event_id ?? fallbackEventId;
 
   await client.query(
     `INSERT INTO event_commands (session_id, event_type, triggered_by, params, status)
      VALUES ($1, $2, 'Spectators', jsonb_build_object('round', $3::int), 'pending')`,
-    [sessionId, winningVote.rows[0].event_id, round]
+    [sessionId, eventIdToQueue, round]
   );
 }
 

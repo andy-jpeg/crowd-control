@@ -128,7 +128,7 @@ export function BasicEventWheelView({
     prevTokensRef.current = tokens
   }, [tokens])
 
-  // Round (+30), every 30s of a round (+30) and correct prediction (+50) rewards are all paid by the backend.
+  // Round (+30), every 7s of a round (+30) and correct prediction (+50) rewards are all paid by the backend.
   // The new balance arrives through the tokens prop, and the gain popup above shows the increase.
 
   // +30 every 7s into a round (0:07 through 0:56). The updated backend pays these itself,

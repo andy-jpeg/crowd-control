@@ -81,9 +81,16 @@ export function ComplexVoteView({
     setIsLocked(true)
     if (pendingWrites === 0 && !completedRef.current) {
       completedRef.current = true
-      onVoteComplete?.(selectedEventId, prediction || null)
+      let finalEventId = selectedEventId
+      if (!finalEventId && COMPLEX_EVENTS.length > 0) {
+        const randomIndex = Math.floor(Math.random() * COMPLEX_EVENTS.length)
+        finalEventId = COMPLEX_EVENTS[randomIndex].id
+        setSelectedEventId(finalEventId)
+        onVoteEvent?.(finalEventId).catch(() => {})
+      }
+      onVoteComplete?.(finalEventId, prediction || null)
     }
-  }, [secondsLeft, pendingWrites, selectedEventId, prediction, onVoteComplete])
+  }, [secondsLeft, pendingWrites, selectedEventId, prediction, onVoteComplete, onVoteEvent])
 
   const formattedTime = `0:${secondsLeft < 10 ? '0' : ''}${secondsLeft}`
 
