@@ -190,6 +190,7 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
   const handleLogin = () => {
     loginWithRedirect({
       authorizationParams: {
+        prompt: 'login',
         audience: apiAudience,
       },
     })

@@ -19,7 +19,10 @@ import { SessionEndView } from './game/SessionEndView'
 const domain = import.meta.env.VITE_AUTH0_DOMAIN
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID
 const apiAudience = 'https://api.crowdcontrol'
-const redirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI ?? `${window.location.origin}/`
+const redirectUri =
+  typeof window !== 'undefined'
+    ? `${window.location.origin}/`
+    : (import.meta.env.VITE_AUTH0_REDIRECT_URI ?? 'http://localhost:5173/')
 
 const ROUND_POLL_MS = 3000
 const STARTED_STATES = new Set(['intermission', 'active', 'results']) // the game has left the lobby
