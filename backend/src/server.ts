@@ -278,8 +278,8 @@ type WatchedSession = {
 
 const ROUND_SECONDS = 60; // matches ROUND_TIME in RoundManager
 const WATCH_REWARD_TOKENS = 30;
-const WATCH_REWARD_INTERVAL_SECONDS = 15;
-const MAX_INTERVAL_REWARDS = Math.floor((ROUND_SECONDS - 1) / WATCH_REWARD_INTERVAL_SECONDS); // every 15s until the round ends: 0:15, 0:30 and 0:45
+const WATCH_REWARD_INTERVAL_SECONDS = 7;
+const MAX_INTERVAL_REWARDS = Math.floor((ROUND_SECONDS - 1) / WATCH_REWARD_INTERVAL_SECONDS); // every 7s until the round ends: 0:07 through 0:56
 
 export function watchRewardKeys(session: WatchedSession, membershipId: string, nowSeconds: number) {
   if (session.round_state !== "active") return [];

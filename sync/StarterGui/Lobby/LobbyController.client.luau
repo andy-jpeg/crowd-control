@@ -14,6 +14,9 @@ local Start = Lobby:FindFirstChild("Start") -- hooks up automatically once you a
 local StartGame = ReplicatedStorage:WaitForChild("StartGame")
 
 local CODE_FORMAT = "%s"
+local NUNITO = Font.fromEnum(Enum.Font.Nunito).Family
+local FONT = Font.new(NUNITO, Enum.FontWeight.Bold) -- everything but the code label and spectator list uses Nunito
+local LIST_FONT = Code.FontFace -- the spectator list keeps the code label's font
 local NO_CODE = "Offline"
 local SHOW_DELAY = 0.6 -- matches the menu's cover transition
 local POP_TIME = 0.4
@@ -63,11 +66,28 @@ local function addStroke(parent, thickness)
 	UIStroke.Parent = parent
 end
 
-local function createText(name, text, size, color, alignment)
+local function isSkipped(item, skips)
+	for _, skip in skips do
+		if item == skip or item:IsDescendantOf(skip) then
+			return true
+		end
+	end
+	return false
+end
+
+local function useNunito(root, skips) -- swaps every text element to Nunito, keeping how bold it is
+	for _, item in root:GetDescendants() do
+		if (item:IsA("TextLabel") or item:IsA("TextButton") or item:IsA("TextBox")) and not isSkipped(item, skips) then
+			item.FontFace = Font.new(NUNITO, item.FontFace.Weight, item.FontFace.Style)
+		end
+	end
+end
+
+local function createText(name, text, size, color, alignment, font)
 	local Label = Instance.new("TextLabel")
 	Label.Name = name
 	Label.BackgroundTransparency = 1
-	Label.FontFace, Label.TextSize, Label.TextColor3 = Code.FontFace, size, color -- same font as the code label
+	Label.FontFace, Label.TextSize, Label.TextColor3 = font or FONT, size, color
 	Label.TextXAlignment = alignment or Enum.TextXAlignment.Left
 	Label.TextTruncate = Enum.TextTruncate.AtEnd
 	Label.Text = text
@@ -88,7 +108,7 @@ local function buildSpectators()
 	UISizeConstraint.MinSize, UISizeConstraint.MaxSize = Vector2.new(200, 220), Vector2.new(320, 520)
 	UISizeConstraint.Parent = Spectators
 
-	local Header = createText("Header", "Spectators (0)", 24, TEXT_COLOR)
+	local Header = createText("Header", "Spectators (0)", 24, TEXT_COLOR, nil, LIST_FONT)
 	Header.Position = UDim2.fromOffset(LIST_PADDING, 6)
 	Header.Size = UDim2.new(1, -LIST_PADDING * 2, 0, HEADER_HEIGHT)
 	Header.Parent = Spectators
@@ -107,7 +127,7 @@ local function buildSpectators()
 	UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	UIListLayout.Parent = List
 
-	local Empty = createText("Empty", EMPTY_TEXT, 18, MUTED_TEXT_COLOR, Enum.TextXAlignment.Center)
+	local Empty = createText("Empty", EMPTY_TEXT, 18, MUTED_TEXT_COLOR, Enum.TextXAlignment.Center, LIST_FONT)
 	Empty.Position = List.Position
 	Empty.Size = UDim2.new(1, -LIST_PADDING * 2, 0, 60)
 	Empty.TextWrapped, Empty.TextTruncate = true, Enum.TextTruncate.None
@@ -206,6 +226,8 @@ local LobbyMusic = createMusic("LobbyMusic", LOBBY_MUSIC_ID)
 local RoundMusic = createMusic("RoundMusic", ROUND_MUSIC_ID)
 local currentMusic = nil
 
+useNunito(Lobby, {Code, Spectators}) -- the code label and spectator list keep their font
+
 local popElements = {CodeImage, Code, Rounds, Spectators, Start}
 local exitGroups = {
 	{direction = "top", elements = {CodeImage, Code}},
@@ -300,12 +322,12 @@ local function createRow(name, tokens, order)
 	addCorner(Row, UDim.new(0, 8))
 	addStroke(Row, 2)
 
-	local Name = createText("Name", name, 18, TEXT_COLOR)
+	local Name = createText("Name", name, 18, TEXT_COLOR, nil, LIST_FONT)
 	Name.Position = UDim2.fromOffset(10, 0)
 	Name.Size = UDim2.new(0.7, -10, 1, 0)
 	Name.Parent = Row
 
-	local Tokens = createText("Tokens", tostring(tokens), 16, MUTED_TEXT_COLOR, Enum.TextXAlignment.Right)
+	local Tokens = createText("Tokens", tostring(tokens), 16, MUTED_TEXT_COLOR, Enum.TextXAlignment.Right, LIST_FONT)
 	Tokens.AnchorPoint = Vector2.new(1, 0)
 	Tokens.Position = UDim2.new(1, -10, 0, 0)
 	Tokens.Size = UDim2.new(0.3, 0, 1, 0)

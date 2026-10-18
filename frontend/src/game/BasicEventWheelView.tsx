@@ -20,7 +20,7 @@ const BASIC_EVENTS: BasicEventItem[] = [
   { id: 'ink_screen', name: 'Squid Screen', type: 'duration', duration: 10, cost: 30 },
 ]
 
-const REWARD_INTERVAL_SECONDS = 15 // matches the backend's watch rewards
+const REWARD_INTERVAL_SECONDS = 7 // matches the backend's watch rewards
 const ROUND_SECONDS = 60 // matches ROUND_TIME in the game
 
 interface BasicEventWheelViewProps {
@@ -114,7 +114,7 @@ export function BasicEventWheelView({
   // Round (+30), every 30s of a round (+30) and correct prediction (+50) rewards are all paid by the backend.
   // The new balance arrives through the tokens prop, and the gain popup above shows the increase.
 
-  // +30 every 15s of a round (0:45, 0:30 and 0:15 left). The updated backend pays these itself,
+  // +30 every 7s into a round (0:07 through 0:56). The updated backend pays these itself,
   // so they're only added here while it isn't reporting rounds (isLive is false)
   const awardedIntervalsRef = useRef<Set<number>>(new Set())
   useEffect(() => {
@@ -123,7 +123,8 @@ export function BasicEventWheelView({
 
   useEffect(() => {
     if (isLive) return
-    if (secondsRemaining > 0 && secondsRemaining < ROUND_SECONDS && secondsRemaining % REWARD_INTERVAL_SECONDS === 0 &&
+    const elapsed = ROUND_SECONDS - secondsRemaining
+    if (secondsRemaining > 0 && elapsed > 0 && elapsed % REWARD_INTERVAL_SECONDS === 0 &&
         !awardedIntervalsRef.current.has(secondsRemaining)) {
       awardedIntervalsRef.current.add(secondsRemaining)
       onAddTokens?.(30)

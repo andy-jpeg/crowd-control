@@ -1,28 +1,42 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
 local EventLog = script.Parent
 local ActionLog = ReplicatedStorage:WaitForChild("ActionLog")
-local Lobby = PlayerGui:WaitForChild("Lobby", 5)
-local LobbyCode = Lobby and Lobby:FindFirstChild("Code")
 
 local TITLE_FORMAT = '<font color="#C35D2A">%s</font> spawns in <b>%s</b>!'
-local MAX_ENTRIES = 4 -- older cards leave early when more events pile up
+local MAX_ENTRIES = 2 -- older cards leave early when more events pile up
 local BASIC_TIME, COMPLEX_TIME, NOTICE_TIME = 4, 7, 5 -- how long a card stays up
 local ENTER_TIME, EXIT_TIME = 0.35, 0.3
 local MAX_DELAY = 60
+local TIMER_TOP, TIMER_RIGHT, TIMER_WIDTH, TIMER_HEIGHT = 12, 16, 200, 70 -- top right, clear of the podium
+local URGENT_TIME, URGENT_COLOR = 10, Color3.fromRGB(190, 40, 30) -- the last 10 seconds of a round turn red and pulse
 local FEED_TOP, FEED_GAP, CARD_PADDING = 12, 8, 12
 local SURFACE_COLOR, COMPLEX_COLOR = Color3.fromRGB(237, 181, 76), Color3.fromRGB(242, 195, 102)
 local BORDER_COLOR, TEXT_COLOR, MUTED_TEXT_COLOR = Color3.fromRGB(195, 93, 42), Color3.fromRGB(43, 22, 6), Color3.fromRGB(107, 58, 18)
-local FONT = LobbyCode and LobbyCode.FontFace or Font.fromEnum(Enum.Font.FredokaOne) -- same font as the lobby
+local NUNITO = Font.fromEnum(Enum.Font.Nunito).Family
+local FONT = Font.new(NUNITO, Enum.FontWeight.Bold)
 
 local popGoal, shrinkGoal = {Scale = 1}, {Scale = 0.9}
+local pulseGoal1, pulseGoal2 = {Scale = 1.12}, {Scale = 1}
 
 local entries = {}
+local isTimerShown = false
+local lastSecond = nil
 local entryCount = 0
+
+local function useNunito(root, skip) -- swaps every text element to Nunito, keeping how bold it is
+	for _, item in root:GetDescendants() do
+		if (item:IsA("TextLabel") or item:IsA("TextButton") or item:IsA("TextBox")) and item ~= skip then
+			item.FontFace = Font.new(NUNITO, item.FontFace.Weight, item.FontFace.Style)
+		end
+	end
+end
 
 local function createText(name, size, color)
 	local Label = Instance.new("TextLabel")
@@ -82,7 +96,7 @@ local function buildTemplate()
 	UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	UIListLayout.Parent = Template
 
-	local Title = createText("Title", 22, TEXT_COLOR)
+	local Title = createText("Title", 28, TEXT_COLOR)
 	Title.LayoutOrder = 1
 	Title.Parent = Template
 
@@ -94,9 +108,51 @@ local function buildTemplate()
 	return Template
 end
 
+local function buildTimer()
+	local Timer = Instance.new("Frame")
+	Timer.Name = "Timer"
+	Timer.AnchorPoint = Vector2.new(1, 0)
+	Timer.Position, Timer.Size = UDim2.new(1, -TIMER_RIGHT, 0, TIMER_TOP), UDim2.fromOffset(TIMER_WIDTH, TIMER_HEIGHT)
+	Timer.BackgroundColor3, Timer.BorderSizePixel = SURFACE_COLOR, 0
+	Timer.Visible = false
+
+	local UICorner = Instance.new("UICorner")
+	UICorner.CornerRadius = UDim.new(0, 14)
+	UICorner.Parent = Timer
+
+	local UIStroke = Instance.new("UIStroke")
+	UIStroke.Color, UIStroke.Thickness = BORDER_COLOR, 3
+	UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	UIStroke.Parent = Timer
+
+	local Label = createText("Label", 16, MUTED_TEXT_COLOR)
+	Label.AutomaticSize = Enum.AutomaticSize.None
+	Label.Position, Label.Size = UDim2.fromOffset(0, 6), UDim2.new(1, 0, 0, 18)
+	Label.Parent = Timer
+
+	local Clock = createText("Clock", 38, TEXT_COLOR)
+	Clock.AutomaticSize = Enum.AutomaticSize.None
+	Clock.Position, Clock.Size = UDim2.fromOffset(0, 24), UDim2.new(1, 0, 0, 40)
+	Clock.Parent = Timer
+
+	Timer.Parent = EventLog
+	return Timer
+end
+
+local Timer = EventLog:FindFirstChild("Timer") or buildTimer() -- copy your own Timer in from a test to restyle it
+local TimerLabel, Clock = Timer:FindFirstChild("Label", true), Timer:FindFirstChild("Clock", true)
+local ClockColor = Clock and Clock.TextColor3
+local TimerScale = Timer:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+TimerScale.Parent = Timer
+local ClockScale = Clock and (Clock:FindFirstChildOfClass("UIScale") or Instance.new("UIScale"))
+if ClockScale then
+	ClockScale.Parent = Clock
+end
+
 local Feed = EventLog:FindFirstChild("Feed") or buildFeed()
 local Template = EventLog:FindFirstChild("Template") or buildTemplate() -- copy your own Template in from a test to restyle the cards
 Template.Visible = false
+useNunito(EventLog) -- covers a Timer or Template you copied in from Studio
 
 local function escape(text) -- names and event titles go inside rich text
 	return (string.gsub(tostring(text), "[&<>]", {["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;"}))
@@ -205,6 +261,85 @@ local function addEntry(payload)
 
 	task.delay(isComplex and COMPLEX_TIME or isNotice and NOTICE_TIME or BASIC_TIME, removeEntry, entry)
 end
+
+local function formatTime(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	return string.format("%d:%02d", seconds // 60, seconds % 60)
+end
+
+local function getTimerText(state) -- what the timer says in each part of the round, or nil to hide it
+	local round, total = ReplicatedStorage:GetAttribute("Round") or 0, ReplicatedStorage:GetAttribute("TotalRounds") or 0
+	if state == "active" then
+		return string.format("Round %d/%d", round, total), nil
+	elseif state == "intermission" then
+		return string.format("Round %d starts in", round), nil
+	elseif state == "results" then
+		return "You survived", formatTime(ReplicatedStorage:GetAttribute("LastSurvivalSeconds") or 0)
+	end
+	return nil
+end
+
+local function pulse(scale)
+	local tweenInfo1 = TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+	local tweenInfo2 = TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+	local growTween = TweenService:Create(scale, tweenInfo1, pulseGoal1)
+	local settleTween = TweenService:Create(scale, tweenInfo2, pulseGoal2)
+
+	growTween:Play()
+	growTween.Completed:Once(function()
+		settleTween:Play()
+	end)
+end
+
+local function updateTimer()
+	local state = ReplicatedStorage:GetAttribute("RoundState")
+	local label, fixedClock = getTimerText(state)
+
+	local shouldShow = label ~= nil
+	if shouldShow ~= isTimerShown then
+		isTimerShown = shouldShow
+		Timer.Visible = shouldShow
+		if shouldShow then
+			TimerScale.Scale = 0
+			local tweenInfo = TweenInfo.new(ENTER_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+			local popTween = TweenService:Create(TimerScale, tweenInfo, popGoal)
+
+			popTween:Play()
+		end
+	end
+	if not shouldShow then
+		lastSecond = nil
+		return
+	end
+
+	local endsAt = ReplicatedStorage:GetAttribute("StateEndsAt") or 0
+	local left = endsAt > 0 and math.max(0, math.ceil(endsAt - workspace:GetServerTimeNow())) or 0 -- the server's clock, so every player sees the same time
+	if TimerLabel then
+		TimerLabel.Text = label
+	end
+	if not Clock then return end
+	Clock.Text = fixedClock or formatTime(left)
+
+	local isUrgent = state == "active" and left > 0 and left <= URGENT_TIME
+	Clock.TextColor3 = isUrgent and URGENT_COLOR or ClockColor
+	if isUrgent and left ~= lastSecond and ClockScale then
+		pulse(ClockScale) -- one pulse per second in the last 10
+	end
+	lastSecond = left
+end
+
+RunService.Heartbeat:Connect(updateTimer)
+
+task.spawn(function() -- hide Roblox's health bar, it sits where the timer is
+	for _ = 1, 10 do
+		if pcall(StarterGui.SetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.Health, false) then
+			return
+		end
+		task.wait(0.5) -- the core UI can still be loading right after joining
+	end
+end)
 
 ActionLog.OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end

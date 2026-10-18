@@ -839,18 +839,18 @@ test("returns live spectator list and token balances when Roblox polls events", 
   );
 });
 
-test("pays watch rewards every 15s of an active round", () => {
+test("pays watch rewards every 7s of an active round", () => {
   const session = { id: "31", current_round: 2, round_state: "active", round_ends_at: 1000 };
   assert.deepEqual(watchRewardKeys({ ...session, round_state: "intermission" }, "7", 900), []);
 
-  assert.deepEqual(watchRewardKeys(session, "7", 1000 - 50), []); // 10s in, the round reward comes from /round
+  assert.deepEqual(watchRewardKeys(session, "7", 1000 - 55), []); // 5s in, the round reward comes from /round
 
-  const late = watchRewardKeys(session, "7", 1000 - 25); // 0:35 into the 1:00 round
+  const late = watchRewardKeys(session, "7", 1000 - 45); // 0:15 into the 1:00 round
   assert.deepEqual(late.map((reward) => reward.key), [
     "interval-reward:31:2:1:7",
     "interval-reward:31:2:2:7"
   ]);
-  assert.equal(watchRewardKeys(session, "7", 2000).length, 3); // 0:15, 0:30 and 0:45, never more
+  assert.equal(watchRewardKeys(session, "7", 2000).length, 8); // 0:07 through 0:56, never more
 });
 
 test("grants watch rewards and returns the balance to a joined spectator", async () => {

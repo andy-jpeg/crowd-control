@@ -6,8 +6,6 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
 local Ending = script.Parent
-local Lobby = PlayerGui:WaitForChild("Lobby", 5)
-local LobbyCode = Lobby and Lobby:FindFirstChild("Code")
 
 local SHOW_DELAY = 0.6 -- matches the cover transition
 local POP_TIME, POP_STAGGER = 0.4, 0.08
@@ -18,7 +16,8 @@ local DEFAULT_ROUND_TIME = 60
 local SURFACE_COLOR, ROW_COLOR = Color3.fromRGB(237, 181, 76), Color3.fromRGB(225, 158, 29)
 local BORDER_COLOR, TEXT_COLOR, MUTED_TEXT_COLOR = Color3.fromRGB(195, 93, 42), Color3.fromRGB(43, 22, 6), Color3.fromRGB(107, 58, 18)
 local LIGHT_COLOR = Color3.fromRGB(255, 247, 232)
-local FONT = LobbyCode and LobbyCode.FontFace or Font.fromEnum(Enum.Font.FredokaOne) -- same font as the lobby
+local NUNITO = Font.fromEnum(Enum.Font.Nunito).Family
+local FONT = Font.new(NUNITO, Enum.FontWeight.Bold)
 
 local popGoal = {Scale = 1}
 
@@ -43,6 +42,14 @@ local function addTextStroke(parent, thickness)
 	local UIStroke = Instance.new("UIStroke")
 	UIStroke.Color, UIStroke.Thickness = BORDER_COLOR, thickness
 	UIStroke.Parent = parent
+end
+
+local function useNunito(root, skip) -- swaps every text element to Nunito, keeping how bold it is
+	for _, item in root:GetDescendants() do
+		if (item:IsA("TextLabel") or item:IsA("TextButton") or item:IsA("TextBox")) and item ~= skip then
+			item.FontFace = Font.new(NUNITO, item.FontFace.Weight, item.FontFace.Style)
+		end
+	end
 end
 
 local function createText(name, text, size, color, alignment)
@@ -113,6 +120,8 @@ local RoundList = Ending:FindFirstChild("RoundList") or buildPanel("RoundList", 
 local Stats = Ending:FindFirstChild("Stats") or buildPanel("Stats", "Stats", 1, UDim2.new(1, -24, 0.56, 0))
 local Countdown = Ending:FindFirstChild("Countdown") or buildHeadline("Countdown", "", 26, UDim2.new(0.5, 0, 1, -60), 34)
 local RoundRows, StatRows = RoundList:FindFirstChild("List", true), Stats:FindFirstChild("List", true)
+
+useNunito(Ending) -- covers anything you copied in from Studio
 
 local popElements = {Title, Subtitle, RoundList, Stats, Countdown}
 local exitGroups = {
