@@ -10,7 +10,7 @@ local Ending = script.Parent
 
 local SHOW_DELAY = 0.6 -- matches the cover transition
 local POP_TIME, POP_STAGGER = 0.4, 0.08
-local POP_SOUND_ID, POP_VOLUME, POP_PITCH_RANGE = "rbxassetid://8517153399", 1, 0.08 -- BApeptalk1, pitch varies a little so repeats don't sound copy-pasted
+local POP_SOUND_ID, POP_VOLUME, POP_PITCH_RANGE = "rbxassetid://76586276648178", 1, 0.08 -- confetti pop sound, plays once when the ending screen pops in
 local POP_LIFETIME = 10
 local EXIT_TIME, EXIT_MARGIN, EXIT_LEAD = 0.45, 20, 0.1 -- leaves just before the menu comes back
 local COUNTDOWN_FORMAT = "Back to menu in %d"

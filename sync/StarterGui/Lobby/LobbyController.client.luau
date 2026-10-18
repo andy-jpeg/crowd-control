@@ -29,6 +29,7 @@ local LEAVE_TIMEOUT = 5
 local HOVER_SCALE, HOVER_TIME = 1.1, 0.15
 local LOBBY_MUSIC_ID, ROUND_MUSIC_ID = "rbxassetid://1841647093", "rbxassetid://1837849285" -- Life in an Elevator, Night Vision
 local MUSIC_VOLUME, MUSIC_FADE_TIME = 0.4, 1.5
+local JOIN_SOUND_ID, JOIN_VOLUME = "rbxassetid://130017098772572", 1 -- Roblox GUI Notification High, when a spectator joins the lobby
 local WOOSH_ID, WOOSH_VOLUME = "rbxassetid://100912899778737", 1.5 -- Sonic Mania Menu Woosh, it's quiet so it's above the usual 0.5
 local START_SWAY_ANGLE, START_SWAY_TIME, START_PULSE_SCALE, START_PULSE_TIME = 2.5, 2.6, 1.035, 1.8 -- calmer than the logo (5, 2, 1.06, 1.4)
 local EMPTY_TEXT = "Waiting for spectators...\nJoin at <u>survivalofthe.fit</u>" -- rich text, so the address is underlined
@@ -305,6 +306,10 @@ local PopSound = Instance.new("Sound")
 PopSound.Name, PopSound.SoundId, PopSound.Volume = "PopSound", POP_SOUND_ID, POP_VOLUME
 PopSound.Parent = SoundService
 
+local JoinSound = Instance.new("Sound")
+JoinSound.Name, JoinSound.SoundId, JoinSound.Volume = "JoinSound", JOIN_SOUND_ID, JOIN_VOLUME
+JoinSound.Parent = SoundService
+
 local Woosh = Instance.new("Sound")
 Woosh.Name, Woosh.SoundId, Woosh.Volume = "StartWoosh", WOOSH_ID, WOOSH_VOLUME
 Woosh.Parent = SoundService
@@ -457,6 +462,7 @@ local function updateSpectators()
 	if not (Header and List and Empty) then return end
 	local spectators = getSpectators()
 	local seenNames = {}
+	local hasNewSpectator = false
 
 	for _, child in List:GetChildren() do
 		if child:IsA("Frame") then
@@ -470,11 +476,16 @@ local function updateSpectators()
 		local Row = createRow(name, tonumber(entry.tokenBalance) or 0, index)
 		if isShown and not knownNames[name] then
 			popIn(Row) -- only new spectators pop in
+			hasNewSpectator = true
 		end
 		seenNames[name] = true
 	end
 
 	knownNames = seenNames
+	if hasNewSpectator then
+		JoinSound.TimePosition = 0
+		JoinSound:Play() -- once per update, even if a few people join at the same moment
+	end
 	Header.Text = "Spectators (" .. #spectators .. ")"
 	Empty.Visible = #spectators == 0
 end

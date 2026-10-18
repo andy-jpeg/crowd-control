@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
 local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 
@@ -12,6 +13,7 @@ local ActionLog = ReplicatedStorage:WaitForChild("ActionLog")
 local TITLE_FORMAT = '<font color="#C35D2A">%s</font> spawns in <b>%s</b>!'
 local NAME_FORMAT = '<font color="#C35D2A">%s</font>'
 local MAX_NAMES = 3 -- past this it says "& 2 others"
+local WHISTLE_ID, WHISTLE_VOLUME = "rbxassetid://129649904589836", 1 -- plays when a round starts
 local MAX_ENTRIES = 2 -- older cards leave early when more events pile up
 local BASIC_TIME, COMPLEX_TIME, NOTICE_TIME = 4, 7, 5 -- how long a card stays up
 local ENTER_TIME, EXIT_TIME = 0.35, 0.3
@@ -351,6 +353,17 @@ local function updateTimer()
 end
 
 RunService.Heartbeat:Connect(updateTimer)
+
+local Whistle = Instance.new("Sound")
+Whistle.Name, Whistle.SoundId, Whistle.Volume = "RoundWhistle", WHISTLE_ID, WHISTLE_VOLUME
+Whistle.Parent = SoundService -- made on the client, so it plays at full volume wherever the camera is
+
+ReplicatedStorage:GetAttributeChangedSignal("RoundState"):Connect(function()
+	if ReplicatedStorage:GetAttribute("RoundState") == "active" then
+		Whistle.TimePosition = 0
+		Whistle:Play()
+	end
+end)
 
 task.spawn(function() -- hide Roblox's health bar, it sits where the timer is
 	for _ = 1, 10 do
