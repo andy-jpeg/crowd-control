@@ -163,6 +163,7 @@ export function BasicEventWheelView({
   const awardedIntervalsRef = useRef<Set<number>>(new Set())
   useEffect(() => {
     awardedIntervalsRef.current = new Set()
+    setCooldowns({})
   }, [currentRound])
 
   useEffect(() => {

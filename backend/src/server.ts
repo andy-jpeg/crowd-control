@@ -624,6 +624,10 @@ export function createApp(
       }
 
       if (body.state === "active" && Number(body.round) > 0) {
+        await client.query(
+          `DELETE FROM event_locks WHERE session_id = $1`,
+          [session.id]
+        );
         await queueWinningComplexEvent(client, session.id, Number(body.round));
       }
       await client.query("COMMIT");
@@ -1179,6 +1183,11 @@ export function createApp(
         [session.id, body.eventType, profile.username]
       );
       if (lockedEventIds.has(body.eventType)) {
+        await client.query(
+          `DELETE FROM event_locks
+           WHERE session_id = $1 AND event_type = $2 AND reserved_at <= now() - interval '10 seconds'`,
+          [session.id, body.eventType]
+        );
         const lock = await client.query(
           `INSERT INTO event_locks (session_id, event_type, command_id)
            VALUES ($1, $2, $3)

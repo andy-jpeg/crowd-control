@@ -636,6 +636,7 @@ test("rejects a locked duration event without charging or enqueueing the purchas
   );
   assert.ok(statements.includes("ROLLBACK"));
   assert.equal(statements.some((sql) => sql.includes("INSERT INTO token_ledger")), false);
+  assert.ok(statements.some((sql) => sql.includes("DELETE FROM event_locks") && sql.includes("interval '10 seconds'")));
 });
 
 test("validates totalRounds on session creation (min 5, max 10)", async () => {
