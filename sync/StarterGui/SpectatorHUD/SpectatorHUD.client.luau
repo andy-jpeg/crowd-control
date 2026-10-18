@@ -119,7 +119,7 @@ local function renderSpectators()
 
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Name = "Name"
-		nameLabel.Size = UDim2.new(1, -75, 1, 0)
+		nameLabel.Size = UDim2.new(1, -12, 1, 0)
 		nameLabel.Position = UDim2.new(0, 6, 0, 0)
 		nameLabel.BackgroundTransparency = 1
 		nameLabel.TextColor3 = Color3.fromRGB(248, 250, 252)
@@ -130,26 +130,14 @@ local function renderSpectators()
 		nameLabel.Text = "@" .. tostring(spectator.username or "spectator")
 		nameLabel.Parent = row
 
-		local tokensLabel = Instance.new("TextLabel")
-		tokensLabel.Name = "Tokens"
-		tokensLabel.Size = UDim2.new(0, 65, 1, 0)
-		tokensLabel.Position = UDim2.new(1, -71, 0, 0)
-		tokensLabel.BackgroundTransparency = 1
-		tokensLabel.TextColor3 = Color3.fromRGB(251, 191, 36) -- gold/yellow
-		tokensLabel.Font = Enum.Font.GothamBold
-		tokensLabel.TextSize = 11
-		tokensLabel.TextXAlignment = Enum.TextXAlignment.Right
-		tokensLabel.Text = tostring(spectator.tokenBalance or 0) .. " pts"
-		tokensLabel.Parent = row
-
 		row.Parent = scrollList
 	end
 end
 
 local function updateVisibility()
 	local roundState = ReplicatedStorage:GetAttribute("RoundState")
-	-- Hide during main menu; show during lobby, intermission, active, results
-	container.Visible = roundState ~= nil and roundState ~= "menu" and roundState ~= "lobby" -- the lobby shows its own list
+	-- Hide during main menu and lobby (the lobby shows its own list)
+	container.Visible = roundState ~= nil and roundState ~= "menu" and roundState ~= "lobby"
 end
 
 ReplicatedStorage:GetAttributeChangedSignal("SpectatorList"):Connect(renderSpectators)

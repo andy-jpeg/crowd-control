@@ -171,7 +171,7 @@ function SpectatorApp() {
         </header>
 
         <section className="panel">
-          <AuthPanel onJoinSession={() => setCurrentView('join')} />
+          <AuthPanel key={currentView} onJoinSession={() => setCurrentView('join')} />
         </section>
       </main>
 

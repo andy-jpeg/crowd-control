@@ -284,7 +284,7 @@ const MAX_INTERVAL_REWARDS = 3; // at 0:30, 1:00 and 1:30 into the round
 export function watchRewardKeys(session: WatchedSession, membershipId: string, nowSeconds: number) {
   if (session.round_state !== "active") return [];
   const round = session.current_round;
-  const rewards = [{ reason: "round_reward", key: `round-reward:${session.id}:${round}:${membershipId}` }];
+  const rewards: Array<{ reason: string; key: string }> = []; // the +30 round reward is paid by POST /round
   if (session.round_ends_at !== null && session.round_ends_at !== undefined) {
     const remaining = Math.max(0, Number(session.round_ends_at) - nowSeconds);
     const intervals = Math.min(MAX_INTERVAL_REWARDS, Math.floor((ROUND_SECONDS - remaining) / WATCH_REWARD_INTERVAL_SECONDS));
@@ -578,6 +578,17 @@ export function createApp(
          WHERE id = $1`,
         [session.id, body.round, body.totalRounds ?? null, body.state ?? null, body.endsAt ?? null]
       );
+      if (Number(body.round) > 0) { // no round reward in the lobby (round 0)
+        await client.query(
+          `INSERT INTO token_ledger (membership_id, delta, reason, idempotency_key)
+           SELECT id, 30, 'round_reward',
+                  'round-reward:' || session_id::text || ':' || $2::text || ':' || spectator_id::text
+           FROM session_memberships
+           WHERE session_id = $1
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [session.id, body.round]
+        );
+      }
       await client.query("COMMIT");
       res.json({ ok: true, round: body.round, totalRounds: body.totalRounds });
     } catch (error) {

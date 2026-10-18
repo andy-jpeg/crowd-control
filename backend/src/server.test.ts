@@ -681,10 +681,14 @@ test("validates totalRounds on session creation (min 5, max 10)", async () => {
 
 test("updates round and totalRounds via POST /sessions/:code/round", async () => {
   const statements: string[] = [];
-  const pool = mockPool((sql) => {
+  const rewardValues: unknown[][] = [];
+  const pool = mockPool((sql, values) => {
     statements.push(sql);
     if (sql.includes("SELECT id, session_token, status FROM sessions")) {
       return { rows: [{ id: "31", session_token: "00000000-0000-4000-8000-000000000001", status: "active" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO token_ledger") && sql.includes("'round_reward'")) {
+      rewardValues.push(values ?? []);
     }
     return { rows: [], rowCount: 1 };
   });
@@ -703,6 +707,16 @@ test("updates round and totalRounds via POST /sessions/:code/round", async () =>
       });
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), { ok: true, round: 2, totalRounds: 8 });
+
+      const retry = await fetch(`${baseUrl}/sessions/KWPZ/round`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-session-token": "00000000-0000-4000-8000-000000000001"
+        },
+        body: JSON.stringify({ round: 2, totalRounds: 8, state: "intermission" })
+      });
+      assert.equal(retry.status, 200);
 
       const lobby = await fetch(`${baseUrl}/sessions/KWPZ/round`, {
         method: "POST",
@@ -726,6 +740,11 @@ test("updates round and totalRounds via POST /sessions/:code/round", async () =>
     }
   );
   assert.ok(statements.some((sql) => sql.includes("UPDATE sessions") && sql.includes("total_rounds") && sql.includes("round_state")));
+  assert.equal(rewardValues.length, 2); // the lobby (round 0) pays nothing
+  assert.deepEqual(rewardValues, [["31", 2], ["31", 2]]);
+  assert.ok(statements.some((sql) =>
+    sql.includes("'round_reward'") && sql.includes("ON CONFLICT (idempotency_key) DO NOTHING")
+  ));
 });
 
 test("serves session details to spectators via GET /api/sessions/:code", async () => {
@@ -821,22 +840,19 @@ test("returns live spectator list and token balances when Roblox polls events", 
 });
 
 
-
-test("pays watch rewards once per round and every 30s of an active round", () => {
+test("pays watch rewards every 30s of an active round", () => {
   const session = { id: "31", current_round: 2, round_state: "active", round_ends_at: 1000 };
   assert.deepEqual(watchRewardKeys({ ...session, round_state: "intermission" }, "7", 900), []);
 
-  const early = watchRewardKeys(session, "7", 1000 - 110); // 10s in
-  assert.deepEqual(early.map((reward) => reward.key), ["round-reward:31:2:7"]);
+  assert.deepEqual(watchRewardKeys(session, "7", 1000 - 110), []); // 10s in, the round reward comes from /round
 
   const late = watchRewardKeys(session, "7", 1000 - 25); // 1:35 in
   assert.deepEqual(late.map((reward) => reward.key), [
-    "round-reward:31:2:7",
     "interval-reward:31:2:1:7",
     "interval-reward:31:2:2:7",
     "interval-reward:31:2:3:7"
   ]);
-  assert.equal(watchRewardKeys(session, "7", 2000).length, 4); // never more than 3 intervals
+  assert.equal(watchRewardKeys(session, "7", 2000).length, 3); // never more than 3 intervals
 });
 
 test("grants watch rewards and returns the balance to a joined spectator", async () => {
