@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './WaitingForHostView.css'
 import logo from '../assets/CrowdControl.png'
+import tokenIcon from '../assets/token.png'
 
 interface WaitingForHostViewProps {
   sessionCode: string
@@ -65,7 +66,7 @@ export function WaitingForHostView({
         <div className="waiting-user-meta">
           <span>{spectatorName}</span>
           <span className="waiting-meta-badge">
-            <span className="waiting-meta-token-dot" />
+            <img src={tokenIcon} className="waiting-meta-token-dot" alt="Tokens" />
             {tokens}
           </span>
         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './BasicEventWheelView.css'
 import logo from '../assets/CrowdControl.png'
+import tokenIcon from '../assets/token.png'
 
 export interface BasicEventItem {
   id: string
@@ -335,14 +336,14 @@ export function BasicEventWheelView({
         </div>
 
         <div className="basic-token-group">
-          <div className="basic-token-badge" />
+          <img src={tokenIcon} className="basic-token-badge" alt="Token" />
           <span className={`basic-token-count ${tokenGain ? 'pulse' : ''}`}>{tokens}</span>
 
           {/* Floating Gain Animation: + [O] 30 or + [O] 50 */}
           {tokenGain && (
             <div key={tokenGain.id} className="token-gain-popup">
               <span className="token-gain-plus">+</span>
-              <div className="token-gain-mini-badge" />
+              <img src={tokenIcon} className="token-gain-mini-badge" alt="Token" />
               <span className="token-gain-amount">{tokenGain.amount}</span>
             </div>
           )}

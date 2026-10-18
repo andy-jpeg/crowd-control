@@ -1,5 +1,6 @@
 import './SessionEndView.css'
 import logo from '../assets/CrowdControl.png'
+import tokenIcon from '../assets/token.png'
 
 export interface SessionEndViewProps {
   sessionCode: string
@@ -50,7 +51,7 @@ export function SessionEndView({
           <div className="end-stat-block">
             <span className="end-stat-label">Final Tokens Remaining</span>
             <div className="end-token-display">
-              <div className="basic-token-badge end-token-badge" />
+              <img src={tokenIcon} className="basic-token-badge end-token-badge" alt="Tokens" />
               <span className="basic-token-count end-token-count">{finalTokens}</span>
             </div>
           </div>
