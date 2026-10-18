@@ -87,8 +87,9 @@ export function BasicEventWheelView({
   // 1-minute round timer
   const [secondsRemaining, setSecondsRemaining] = useState(ROUND_SECONDS)
 
-  // Cooldown tracker for duration events (10 seconds)
-  const [cooldowns, setCooldowns] = useState<Record<string, number>>({})
+  // Cooldown tracker for duration events (stores expiration timestamp in ms)
+  const [cooldownEndsAt, setCooldownEndsAt] = useState<Record<string, number>>({})
+  const [currentTimeMs, setCurrentTimeMs] = useState(Date.now())
 
   const [isPurchasing, setIsPurchasing] = useState(false)
   const [purchaseError, setPurchaseError] = useState('')
@@ -165,7 +166,7 @@ export function BasicEventWheelView({
   const awardedIntervalsRef = useRef<Set<number>>(new Set())
   useEffect(() => {
     awardedIntervalsRef.current = new Set()
-    setCooldowns({})
+    setCooldownEndsAt({})
   }, [currentRound])
 
   useEffect(() => {
@@ -233,37 +234,46 @@ export function BasicEventWheelView({
     }
   }, [isLive, secondsRemaining, currentRound, totalRounds, onNextRound, onEndSession, tokens])
 
-  // Cooldown countdown for duration events (10s -> 0s)
+  // Tick every 250ms for smooth and accurate cooldown countdowns and clock updates
   useEffect(() => {
     const timer = setInterval(() => {
-      setCooldowns((prev) => {
-        let hasActive = false
-        const next: Record<string, number> = {}
-        for (const [key, val] of Object.entries(prev)) {
-          if (val > 1) {
-            next[key] = val - 1
-            hasActive = true
-          }
-        }
-        return hasActive ? next : {}
-      })
-    }, 1000)
+      setCurrentTimeMs(Date.now())
+    }, 250)
     return () => clearInterval(timer)
   }, [])
 
   // Sync incoming server locks from polling across all spectators
   useEffect(() => {
     if (!activeLocks) return
-    setCooldowns((prev) => {
-      const updated = { ...prev }
+    const now = Date.now()
+    setCooldownEndsAt((prev) => {
+      const next: Record<string, number> = {}
       let changed = false
-      for (const [eventId, remaining] of Object.entries(activeLocks)) {
-        if (remaining > (updated[eventId] ?? 0)) {
-          updated[eventId] = remaining
-          changed = true
+
+      // Apply active locks reported by backend
+      for (const [eventId, remainingSeconds] of Object.entries(activeLocks)) {
+        if (remainingSeconds > 0) {
+          const serverEndsAt = now + remainingSeconds * 1000
+          const localEndsAt = prev[eventId] ?? 0
+          next[eventId] = Math.max(localEndsAt, serverEndsAt)
+          if (next[eventId] !== prev[eventId]) {
+            changed = true
+          }
         }
       }
-      return changed ? updated : prev
+
+      // If backend no longer reports the lock, keep it only until its local timer expires
+      for (const [eventId, endsAt] of Object.entries(prev)) {
+        if (!(eventId in next)) {
+          if (endsAt > now) {
+            next[eventId] = endsAt
+          } else {
+            changed = true
+          }
+        }
+      }
+
+      return changed ? next : prev
     })
   }, [activeLocks])
 
@@ -345,7 +355,9 @@ export function BasicEventWheelView({
     }
 
     // Check cooldown for duration events
-    if (currentEvent.type === 'duration' && (cooldowns[currentEvent.id] ?? 0) > 0) {
+    const currentEndsAt = cooldownEndsAt[currentEvent.id] ?? 0
+    const remainingCooldown = Math.max(0, Math.ceil((currentEndsAt - Date.now()) / 1000))
+    if (currentEvent.type === 'duration' && remainingCooldown > 0) {
       return
     }
 
@@ -359,7 +371,7 @@ export function BasicEventWheelView({
 
       // Set 10s cooldown for duration events
       if (currentEvent.type === 'duration') {
-        setCooldowns((prev) => ({ ...prev, [currentEvent.id]: 10 }))
+        setCooldownEndsAt((prev) => ({ ...prev, [currentEvent.id]: Date.now() + 10000 }))
       }
 
       setTriggerFeedback(currentEvent.name)
@@ -438,28 +450,35 @@ export function BasicEventWheelView({
       {/* Main Wheel Area */}
       <div className={`wheel-stage ${isRoundActive ? '' : 'wheel-waiting'}`}>
         {/* Highlighted Event Showcase in the middle of the circle */}
-        <div
-          className="wheel-center-display"
-          onClick={() => handleSpokeClick(selectedIndex)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              handleSpokeClick(selectedIndex)
-            }
-          }}
-          role="button"
-          tabIndex={0}
-          title={`Trigger ${currentEvent.name}`}
-        >
-          {EVENT_ICONS[currentEvent.id] && (
-            <img
-              key={currentEvent.id}
-              src={EVENT_ICONS[currentEvent.id]}
-              alt={currentEvent.name}
-              className="wheel-center-event-icon"
-            />
-          )}
-        </div>
+        {(() => {
+          const selectedEndsAt = cooldownEndsAt[currentEvent.id] ?? 0
+          const selectedCooldown = Math.max(0, Math.ceil((selectedEndsAt - currentTimeMs) / 1000))
+          const isSelectedOnCooldown = currentEvent.type === 'duration' && selectedCooldown > 0
+          return (
+            <div
+              className={`wheel-center-display ${isSelectedOnCooldown ? 'cooldown' : ''}`}
+              onClick={() => handleSpokeClick(selectedIndex)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  handleSpokeClick(selectedIndex)
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              title={isSelectedOnCooldown ? `${currentEvent.name} (locked for ${selectedCooldown}s)` : `Trigger ${currentEvent.name}`}
+            >
+              {EVENT_ICONS[currentEvent.id] && (
+                <img
+                  key={currentEvent.id}
+                  src={EVENT_ICONS[currentEvent.id]}
+                  alt={currentEvent.name}
+                  className="wheel-center-event-icon"
+                />
+              )}
+            </div>
+          )
+        })()}
 
         {/* The Radial Spoke Buttons - Selected value always remains locked in the middle (0 deg) */}
         <div className="wheel-spokes-container">
@@ -487,8 +506,9 @@ export function BasicEventWheelView({
               sizeClass = 'size-small'
             }
 
-            const cooldownTime = cooldowns[event.id] ?? 0
-            const onCooldown = cooldownTime > 0
+            const endsAt = cooldownEndsAt[event.id] ?? 0
+            const cooldownTime = Math.max(0, Math.ceil((endsAt - currentTimeMs) / 1000))
+            const onCooldown = event.type === 'duration' && cooldownTime > 0
 
             return (
               <button

@@ -222,6 +222,22 @@
   transform: translateY(-50%) scale(0.94);
 }
 
+.wheel-center-display.cooldown {
+  opacity: 0.65;
+  cursor: not-allowed;
+  filter: grayscale(0.8);
+}
+
+.wheel-center-display.cooldown:hover,
+.wheel-center-display.cooldown:focus-visible {
+  transform: translateY(-50%) scale(1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18), inset 0 2px 4px rgba(255, 255, 255, 0.35);
+}
+
+.wheel-center-display.cooldown:active {
+  transform: translateY(-50%) scale(1);
+}
+
 .wheel-center-event-icon {
   width: 76px;
   height: 76px;
