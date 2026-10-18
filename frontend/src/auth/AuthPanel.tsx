@@ -37,6 +37,55 @@ function validateUsername(value: string) {
   return ''
 }
 
+function isUsernameTaken(newUsername: string, currentUserId: string): boolean {
+  const normalized = newUsername.trim().toLowerCase()
+  if (!normalized) return false
+
+  // Check all stored usernames in localStorage
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key && key.startsWith('cc_username_')) {
+      const ownerId = key.replace('cc_username_', '')
+      if (ownerId !== currentUserId) {
+        const stored = (localStorage.getItem(key) || '').trim().toLowerCase()
+        if (stored === normalized) {
+          return true
+        }
+      }
+    }
+  }
+
+  try {
+    const listRaw = localStorage.getItem('cc_all_usernames')
+    if (listRaw) {
+      const list: Array<{ username: string; ownerId: string }> = JSON.parse(listRaw)
+      const match = list.find((item) => item.username.toLowerCase() === normalized)
+      if (match && match.ownerId !== currentUserId) {
+        return true
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return false
+}
+
+function registerUsername(username: string, ownerId: string) {
+  const normalized = username.trim()
+  try {
+    const listRaw = localStorage.getItem('cc_all_usernames')
+    const list: Array<{ username: string; ownerId: string }> = listRaw ? JSON.parse(listRaw) : []
+    const filtered = list.filter(
+      (item) => item.ownerId !== ownerId && item.username.toLowerCase() !== normalized.toLowerCase()
+    )
+    filtered.push({ username: normalized, ownerId })
+    localStorage.setItem('cc_all_usernames', JSON.stringify(filtered))
+  } catch {
+    // ignore
+  }
+}
+
 interface AuthPanelProps {
   onJoinSession?: () => void
 }
@@ -73,22 +122,42 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     setProfileLoading(true)
     setProfileError('')
 
+    const storedUsername =
+      localStorage.getItem(`cc_username_${auth0UserId}`) ||
+      (user?.email ? localStorage.getItem(`cc_username_${user.email}`) : null)
+
     getAccessTokenSilently({
       authorizationParams: { audience: apiAudience },
     })
       .then((token) => profileService.getProfile(auth0UserId, requireAccessToken(token)))
       .then((nextProfile) => {
         if (!cancelled) {
-          setProfile(nextProfile)
+          if (nextProfile && nextProfile.username) {
+            setProfile(nextProfile)
+            localStorage.setItem(`cc_username_${auth0UserId}`, nextProfile.username)
+            if (user?.email) localStorage.setItem(`cc_username_${user.email}`, nextProfile.username)
+            registerUsername(nextProfile.username, auth0UserId)
+          } else if (storedUsername) {
+            // Found existing stored username for this Google account!
+            setProfile({
+              auth0UserId,
+              username: storedUsername,
+              totalSessionsJoined: 0,
+              totalTokensSpent: 0,
+              createdAt: new Date().toISOString(),
+            })
+          } else {
+            // New spectator needs to choose a unique username
+            setProfile(null)
+          }
         }
       })
       .catch(() => {
         if (!cancelled) {
-          const cachedName = localStorage.getItem(`cc_username_${auth0UserId}`)
-          if (cachedName) {
+          if (storedUsername) {
             setProfile({
               auth0UserId,
-              username: cachedName,
+              username: storedUsername,
               totalSessionsJoined: 0,
               totalTokensSpent: 0,
               createdAt: new Date().toISOString(),
@@ -109,16 +178,21 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     }
   }, [getAccessTokenSilently, isAuthenticated, activeUserId, user])
 
-  const handleSignupEmail = () => {
+  const handleSignup = () => {
     loginWithRedirect({
       authorizationParams: {
         screen_hint: 'signup',
+        audience: apiAudience,
       },
     })
   }
 
-  const handleLoginEmail = () => {
-    loginWithRedirect()
+  const handleLogin = () => {
+    loginWithRedirect({
+      authorizationParams: {
+        audience: apiAudience,
+      },
+    })
   }
 
   const handleLogout = () =>
@@ -141,6 +215,14 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
       return
     }
 
+    const cleanUsername = usernameInput.trim()
+
+    // Verify username is unique and not already taken by another spectator
+    if (isUsernameTaken(cleanUsername, auth0UserId)) {
+      setSaveError('That username is already taken! Please choose another.')
+      return
+    }
+
     setSaveLoading(true)
     setSaveError('')
 
@@ -150,23 +232,28 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
           authorizationParams: { audience: apiAudience },
         })
       )
-      const nextProfile = await profileService.saveUsername(auth0UserId, usernameInput.trim(), token)
+      const nextProfile = await profileService.saveUsername(auth0UserId, cleanUsername, token)
       setProfile(nextProfile)
-      setUsernameInput(nextProfile.username ?? '')
+      localStorage.setItem(`cc_username_${auth0UserId}`, nextProfile.username ?? cleanUsername)
+      if (user?.email) localStorage.setItem(`cc_username_${user.email}`, nextProfile.username ?? cleanUsername)
+      registerUsername(nextProfile.username ?? cleanUsername, auth0UserId)
+      setUsernameInput('')
     } catch (error) {
       if (error instanceof UsernameTakenError) {
         setSaveError(error.message)
       } else {
-        // If the backend deployment is pending, save locally so spectator can enter dashboard
-        const chosenUsername = usernameInput.trim()
-        localStorage.setItem(`cc_username_${auth0UserId}`, chosenUsername)
+        // Fallback: save username locally for this account
+        localStorage.setItem(`cc_username_${auth0UserId}`, cleanUsername)
+        if (user?.email) localStorage.setItem(`cc_username_${user.email}`, cleanUsername)
+        registerUsername(cleanUsername, auth0UserId)
         setProfile({
           auth0UserId,
-          username: chosenUsername,
+          username: cleanUsername,
           totalSessionsJoined: 0,
           totalTokensSpent: 0,
           createdAt: new Date().toISOString(),
         })
+        setUsernameInput('')
       }
     } finally {
       setSaveLoading(false)
@@ -205,11 +292,9 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
         <h2>Welcome to Crowd Control</h2>
         <p>Create an account or log in to keep your spectator profile and rewards.</p>
 
-
-
         <div className="auth-actions auth-stack">
-          <button type="button" onClick={handleSignupEmail}>Sign Up</button>
-          <button type="button" className="secondary" onClick={handleLoginEmail}>Log In</button>
+          <button type="button" onClick={handleSignup}>Sign Up</button>
+          <button type="button" className="secondary" onClick={handleLogin}>Log In</button>
         </div>
       </div>
     )

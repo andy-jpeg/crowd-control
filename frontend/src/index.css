@@ -10,6 +10,7 @@
   --cc-border: 3px solid var(--cc-border-color);
   --cc-surface: #EDB54C;
   --cc-surface-hover: #F2C366;
+  --cc-token: #FFEB55; /* Lighter, vibrant yellow token/coin */
   --cc-accent: #C35D2A;
   --cc-on-accent: #FFF7E8;
   --cc-muted-fill: #B9822A;
