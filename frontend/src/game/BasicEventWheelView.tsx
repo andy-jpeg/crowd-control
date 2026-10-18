@@ -376,7 +376,7 @@ export function BasicEventWheelView({
       {userPrediction && (
         <div className="basic-prediction-banner">
           <span className="basic-prediction-pill">
-            🎯 Predicted: <strong>{userPrediction}</strong>
+            Predicted: <strong>{userPrediction}</strong>
           </span>
           {!predictionAwarded ? (
             <span className="prediction-claim-pill" title="Paid when the round's results come in">
