@@ -29,11 +29,11 @@ const complexEventIds = new Set([
   "flood_escape",
   "shrinking_podium"
 ]);
-const timeBrackets = new Set([
-  "0:00 - 0:30",
-  "0:30 - 1:00",
-  "1:00 - 1:30",
-  "1:30 - 2:00"
+const timeBrackets = new Set([ // quarters of the 1:00 round
+  "0:00 - 0:15",
+  "0:15 - 0:30",
+  "0:30 - 0:45",
+  "0:45 - 1:00"
 ]);
 const basicEventIds = new Set([
   "bombs",
@@ -113,7 +113,7 @@ function resultPlayers(value: unknown): ResultPlayer[] | null {
     if (!isJsonObject(player) || typeof player.playerId !== "string" ||
         player.playerId.length === 0 || typeof player.survivalSeconds !== "number" ||
         !Number.isFinite(player.survivalSeconds) || player.survivalSeconds < 0 ||
-        player.survivalSeconds > 120) {
+        player.survivalSeconds > ROUND_SECONDS) {
       return null;
     }
     players.push({ playerId: player.playerId, survivalSeconds: player.survivalSeconds });
@@ -122,10 +122,10 @@ function resultPlayers(value: unknown): ResultPlayer[] | null {
 }
 
 export function getTimeBracket(survivalSeconds: number, survivedFullRound: boolean): string {
-  if (survivedFullRound || survivalSeconds >= 90) return "1:30 - 2:00";
-  if (survivalSeconds >= 60) return "1:00 - 1:30";
-  if (survivalSeconds >= 30) return "0:30 - 1:00";
-  return "0:00 - 0:30";
+  if (survivedFullRound || survivalSeconds >= 45) return "0:45 - 1:00";
+  if (survivalSeconds >= 30) return "0:30 - 0:45";
+  if (survivalSeconds >= 15) return "0:15 - 0:30";
+  return "0:00 - 0:15";
 }
 
 export function getLongestSurvivorIds(players: ResultPlayer[]): Set<string> {
@@ -276,10 +276,10 @@ type WatchedSession = {
   round_ends_at: number | string | null;
 };
 
-const ROUND_SECONDS = 120;
+const ROUND_SECONDS = 60; // matches ROUND_TIME in RoundManager
 const WATCH_REWARD_TOKENS = 30;
-const WATCH_REWARD_INTERVAL_SECONDS = 30;
-const MAX_INTERVAL_REWARDS = 3; // at 0:30, 1:00 and 1:30 into the round
+const WATCH_REWARD_INTERVAL_SECONDS = 15;
+const MAX_INTERVAL_REWARDS = Math.floor((ROUND_SECONDS - 1) / WATCH_REWARD_INTERVAL_SECONDS); // every 15s until the round ends: 0:15, 0:30 and 0:45
 
 export function watchRewardKeys(session: WatchedSession, membershipId: string, nowSeconds: number) {
   if (session.round_state !== "active") return [];
@@ -652,7 +652,7 @@ export function createApp(
           (typeof body.survivalSeconds !== "number" ||
            !Number.isFinite(body.survivalSeconds) ||
            body.survivalSeconds < 0 ||
-           body.survivalSeconds > 120)) ||
+           body.survivalSeconds > ROUND_SECONDS)) ||
         (body.survivedFullRound !== undefined && typeof body.survivedFullRound !== "boolean") ||
         ((!players || players.length < 2) && typeof body.survivalSeconds !== "number" &&
           !(players?.length === 1))) {

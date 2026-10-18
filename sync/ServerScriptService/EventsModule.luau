@@ -52,21 +52,21 @@ local PODIUM_SIZE, PODIUM_COLOR, PODIUM_MATERIAL = Podium and Podium.Size, Podiu
 local INDICATOR_COLOR, INDICATOR_TRANSPARENCY = Color3.fromRGB(255, 40, 40), 0.6
 
 local EVENTS = {
-	bombs = {method = "Bombs", tier = "basic", params = {count = {default = 5, min = 1, max = 8}}},
-	inverted_controls = {method = "InvertedControls", tier = "basic", params = {duration = {default = 10, min = 3, max = 20}}},
-	low_gravity = {method = "LowGravity", tier = "basic", params = {duration = {default = 10, min = 3, max = 20}}},
-	ink_screen = {method = "InkScreen", tier = "basic", params = {duration = {default = 10, min = 2, max = 10}}},
-	banana_peels = {method = "BananaPeels", tier = "basic", params = {count = {default = 3, min = 1, max = 5}}},
-	spring_traps = {method = "SpringTraps", tier = "basic", params = {count = {default = 3, min = 1, max = 6}}},
-	slime_puddles = {method = "SlimePuddles", tier = "basic", params = {count = {default = 3, min = 1, max = 5}}},
+	bombs = {method = "Bombs", name = "Bombs", tier = "basic", params = {count = {default = 5, min = 1, max = 8}}},
+	inverted_controls = {method = "InvertedControls", name = "Inverted Controls", tier = "basic", params = {duration = {default = 10, min = 3, max = 20}}},
+	low_gravity = {method = "LowGravity", name = "Low Gravity", tier = "basic", params = {duration = {default = 10, min = 3, max = 20}}},
+	ink_screen = {method = "InkScreen", name = "Squid Screen", tier = "basic", params = {duration = {default = 10, min = 2, max = 10}}},
+	banana_peels = {method = "BananaPeels", name = "Banana Peels", tier = "basic", params = {count = {default = 3, min = 1, max = 5}}},
+	spring_traps = {method = "SpringTraps", name = "Spring Traps", tier = "basic", params = {count = {default = 3, min = 1, max = 6}}},
+	slime_puddles = {method = "SlimePuddles", name = "Slime Puddles", tier = "basic", params = {count = {default = 3, min = 1, max = 5}}},
 
-	giant_boulder = {method = "GiantBoulder", tier = "complex", params = {duration = {default = 30, min = 15, max = 45}}},
-	floor_is_lava = {method = "FloorIsLava", tier = "complex", params = {duration = {default = 15, min = 5, max = 30}}},
-	shrinking_podium = {method = "ShrinkingPodium", tier = "complex", params = {duration = {default = 15, min = 5, max = 25}}},
-	tornado = {method = "Tornado", tier = "complex", params = {duration = {default = 15, min = 5, max = 30}}},
-	tsunami = {method = "Tsunami", tier = "complex", params = {}},
-	flood_escape = {method = "FloodEscape", tier = "complex", params = {}},
-	blob_fight = {method = "BlobFight", tier = "complex", params = {}},
+	giant_boulder = {method = "GiantBoulder", name = "Giant Boulder", tip = "Dodge the rolling boulders!", tier = "complex", params = {duration = {default = 30, min = 15, max = 45}}},
+	floor_is_lava = {method = "FloorIsLava", name = "Floor Is Lava", tip = "Jump onto a platform before the floor burns!", tier = "complex", params = {duration = {default = 15, min = 5, max = 30}}},
+	shrinking_podium = {method = "ShrinkingPodium", name = "Shrinking Podium", tip = "Stay near the center!", tier = "complex", params = {duration = {default = 15, min = 5, max = 25}}},
+	tornado = {method = "Tornado", name = "Tornado", tip = "Keep moving, it chases the closest player!", tier = "complex", params = {duration = {default = 15, min = 5, max = 30}}},
+	tsunami = {method = "Tsunami", name = "Tsunami", tip = "Hide inside the house!", tier = "complex", params = {}},
+	flood_escape = {method = "FloodEscape", name = "Flood Escape", tip = "Get to higher ground!", tier = "complex", params = {}},
+	blob_fight = {method = "BlobFight", name = "Blob Fight", tip = "Grab your sword and slay the slime!", tier = "complex", params = {}},
 }
 
 local EventsModule = {}
@@ -970,7 +970,13 @@ end
 
 function EventsModule:GetDisplayName(eventType)
 	local info = EVENTS[eventType]
-	return info and (string.gsub(info.method, "(%l)(%u)", "%1 %2")) or "an event" -- GiantBoulder -> Giant Boulder
+	if not info then return "an event" end
+	return info.name or (string.gsub(info.method, "(%l)(%u)", "%1 %2")) -- GiantBoulder -> Giant Boulder
+end
+
+function EventsModule:GetTip(eventType) -- what the player should do, shown under complex events in the action log
+	local info = EVENTS[eventType]
+	return info and info.tip or nil
 end
 
 function EventsModule:GetTier(eventType)

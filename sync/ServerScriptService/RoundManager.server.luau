@@ -10,13 +10,14 @@ local EventsModule = require(ServerScriptService.EventsModule)
 local HostSession, StartGame = ReplicatedStorage:WaitForChild("HostSession"), ReplicatedStorage:WaitForChild("StartGame")
 local ActionLog = ReplicatedStorage:WaitForChild("ActionLog")
 
-local TOTAL_ROUNDS, ROUND_TIME = 5, 120
+local TOTAL_ROUNDS, ROUND_TIME = 5, 60 -- the backend's ROUND_SECONDS and the website's timer match this
 local MIN_ROUNDS, MAX_ROUNDS = 5, 10
 local INTERMISSION_TIME, RESULTS_TIME, SESSION_OVER_TIME = 15, 5, 10
 local POLL_INTERVAL, CHECK_INTERVAL = 3, 0.1
 local FALL_DEPTH = 8 -- studs below the podium top that count as falling off
 local SPAWN_SPREAD, SPAWN_HEIGHT, RESPAWN_DELAY = 4, 3.5, 3
 local MAX_NAME_LENGTH, FALLBACK_NAME = 20, "A spectator"
+local CROWD_TRIGGER, CROWD_NAME = "Spectators", "The crowd" -- voted complex events come from everyone
 
 local random = Random.new()
 local roundState = "menu"
@@ -67,7 +68,21 @@ local function filterName(name)
 end
 
 local function announceEvent(event, delay)
-	ActionLog:FireAllClients(filterName(event.triggeredBy), EventsModule:GetDisplayName(event.type), delay)
+	ActionLog:FireAllClients({
+		name = event.triggeredBy == CROWD_TRIGGER and CROWD_NAME or filterName(event.triggeredBy),
+		event = EventsModule:GetDisplayName(event.type),
+		tier = EventsModule:GetTier(event.type),
+		tip = EventsModule:GetTip(event.type),
+		delay = delay, -- seconds until it actually starts (complex events wait out the cooldown)
+	})
+end
+
+local function formatTime(seconds)
+	return string.format("%d:%02d", seconds // 60, seconds % 60)
+end
+
+local function announceNotice(title, tip) -- round updates in the action log, alongside the events
+	ActionLog:FireAllClients({tier = "notice", title = title, tip = tip})
 end
 
 local function runEvent(event)
@@ -247,6 +262,7 @@ end
 local function runIntermission(duration)
 	setState("intermission", duration)
 	reportState(duration)
+	announceNotice(string.format("Round %d of %d starts in %ds", currentRound, TOTAL_ROUNDS, duration), "Spectators are voting on a big event!")
 
 	for _, player in Players:GetPlayers() do
 		task.spawn(function()
@@ -278,6 +294,7 @@ local function playRound()
 	local startedAt = os.clock()
 	setState("active", ROUND_TIME)
 	reportState(ROUND_TIME)
+	announceNotice(string.format("Round %d has started!", currentRound), "Survive for " .. formatTime(ROUND_TIME) .. "!")
 	BackendModule.queueTelemetry({type = "round_start", round = currentRound})
 
 	local queued = queuedEvents

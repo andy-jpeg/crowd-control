@@ -60,20 +60,20 @@ test("rejects session codes outside the four-letter alphabet", () => {
 });
 
 test("maps survival boundaries to exactly one prediction bracket", () => {
-  assert.equal(getTimeBracket(0, false), "0:00 - 0:30");
-  assert.equal(getTimeBracket(29.999, false), "0:00 - 0:30");
-  assert.equal(getTimeBracket(30, false), "0:30 - 1:00");
-  assert.equal(getTimeBracket(60, false), "1:00 - 1:30");
-  assert.equal(getTimeBracket(90, false), "1:30 - 2:00");
-  assert.equal(getTimeBracket(81, true), "1:30 - 2:00");
+  assert.equal(getTimeBracket(0, false), "0:00 - 0:15");
+  assert.equal(getTimeBracket(14.999, false), "0:00 - 0:15");
+  assert.equal(getTimeBracket(15, false), "0:15 - 0:30");
+  assert.equal(getTimeBracket(30, false), "0:30 - 0:45");
+  assert.equal(getTimeBracket(45, false), "0:45 - 1:00");
+  assert.equal(getTimeBracket(41, true), "0:45 - 1:00");
 });
 
 test("treats all players tied for the longest survival time as prediction winners", () => {
   assert.deepEqual(
     [...getLongestSurvivorIds([
-      { playerId: "100", survivalSeconds: 119.5 },
-      { playerId: "200", survivalSeconds: 120 },
-      { playerId: "300", survivalSeconds: 120 }
+      { playerId: "100", survivalSeconds: 59.5 },
+      { playerId: "200", survivalSeconds: 60 },
+      { playerId: "300", survivalSeconds: 60 }
     ])].sort(),
     ["200", "300"]
   );
@@ -381,13 +381,13 @@ test("accepts complex-event votes and validated predictions for the current roun
         body: JSON.stringify({
           auth0UserId: "auth0|crowd-user",
           type: "time_bracket",
-          value: "1:30 - 2:00"
+          value: "0:45 - 1:00"
         })
       });
       assert.equal(prediction.status, 200);
       assert.deepEqual(await prediction.json(), {
         ok: true,
-        prediction: { type: "time_bracket", value: "1:30 - 2:00" }
+        prediction: { type: "time_bracket", value: "0:45 - 1:00" }
       });
 
       const catalogEvent = await fetch(`${baseUrl}/api/sessions/KWPZ/vote`, {
@@ -443,9 +443,9 @@ test("settles tied multiplayer predictions once and treats exact result retries 
   const requestBody = {
     round: 1,
     players: [
-      { playerId: "200", survivalSeconds: 120 },
-      { playerId: "400", survivalSeconds: 120 },
-      { playerId: "300", survivalSeconds: 119 }
+      { playerId: "200", survivalSeconds: 60 },
+      { playerId: "400", survivalSeconds: 60 },
+      { playerId: "300", survivalSeconds: 59 }
     ]
   };
 
@@ -839,19 +839,18 @@ test("returns live spectator list and token balances when Roblox polls events", 
   );
 });
 
-test("pays watch rewards every 30s of an active round", () => {
+test("pays watch rewards every 15s of an active round", () => {
   const session = { id: "31", current_round: 2, round_state: "active", round_ends_at: 1000 };
   assert.deepEqual(watchRewardKeys({ ...session, round_state: "intermission" }, "7", 900), []);
 
-  assert.deepEqual(watchRewardKeys(session, "7", 1000 - 110), []); // 10s in, the round reward comes from /round
+  assert.deepEqual(watchRewardKeys(session, "7", 1000 - 50), []); // 10s in, the round reward comes from /round
 
-  const late = watchRewardKeys(session, "7", 1000 - 25); // 1:35 in
+  const late = watchRewardKeys(session, "7", 1000 - 25); // 0:35 into the 1:00 round
   assert.deepEqual(late.map((reward) => reward.key), [
     "interval-reward:31:2:1:7",
-    "interval-reward:31:2:2:7",
-    "interval-reward:31:2:3:7"
+    "interval-reward:31:2:2:7"
   ]);
-  assert.equal(watchRewardKeys(session, "7", 2000).length, 3); // never more than 3 intervals
+  assert.equal(watchRewardKeys(session, "7", 2000).length, 3); // 0:15, 0:30 and 0:45, never more
 });
 
 test("grants watch rewards and returns the balance to a joined spectator", async () => {
@@ -859,7 +858,7 @@ test("grants watch rewards and returns the balance to a joined spectator", async
   const pool = mockPool((sql) => {
     statements.push(sql);
     if (sql.includes("SELECT id, current_round, total_rounds, status, round_state")) {
-      return { rows: [{ id: "31", current_round: 1, total_rounds: 5, status: "active", round_state: "active", round_ends_at: Date.now() / 1000 + 60 }], rowCount: 1 };
+      return { rows: [{ id: "31", current_round: 1, total_rounds: 5, status: "active", round_state: "active", round_ends_at: Date.now() / 1000 + 20 }], rowCount: 1 }; // 0:40 into the round
     }
     if (sql.includes("SELECT m.id") && sql.includes("auth0_subject")) {
       return { rows: [{ id: "7" }], rowCount: 1 };

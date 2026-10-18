@@ -87,12 +87,12 @@ Sent by `RoundManager` every time the round state changes. Use it to open and cl
 - `state` is one of:
   - `"lobby"`: the session was just created and spectators are joining. The host presses Start in the game when they're ready, so there's no `endsAt`
   - `"intermission"`: betting is open, the player is waiting on the podium
-  - `"active"`: the 2:00 round is running, spectators can buy events
+  - `"active"`: the 1:00 round is running, spectators can buy events
   - `"results"`: round over, results are on the way
 - `round` is 0 in the lobby, then 1 through `totalRounds`. The session's current round never goes backward, so a late update can't undo the advance from `/results`
 - `endsAt` is the Unix time in seconds when this state ends, so the web app can show a countdown. It's left out in the lobby
 - The backend stores `state` and `endsAt` on the session (`round_state`, `round_ends_at`) and hands them to spectators through `GET /api/sessions/:code`
-- Intermissions are 15s. A round is 120s unless the player is eliminated early. Results show for 5s
+- Intermissions are 15s. A round is 60s unless the player is eliminated early. Results show for 5s
 - Only accept event purchases while `state` is `"active"`. If one slips in late, the game holds it and runs it at the start of the next round
 
 ### `POST /sessions/:code/results`: round results
@@ -103,8 +103,8 @@ Sent when a round ends. Used to settle bracket bets and pay out tokens. The back
 { "round": 3, "survivalSeconds": 74.2, "survivedFullRound": false }
 ```
 
-- `survivalSeconds` is rounded to 0.1s and capped at 120. With more than one player it's the longest survival
-- Brackets: `0:00-0:30`, `0:30-1:00`, `1:00-1:30`, `1:30-2:00`. Surviving the full round (`survivedFullRound: true`) counts as the last bracket
+- `survivalSeconds` is rounded to 0.1s and capped at 60. With more than one player it's the longest survival
+- Brackets: `0:00 - 0:15`, `0:15 - 0:30`, `0:30 - 0:45`, `0:45 - 1:00`. Surviving the full round (`survivedFullRound: true`) counts as the last bracket
 - Falling off the podium counts as being eliminated
 - An exact retry returns success without inserting a second result; a conflicting result for the same round returns **409**. Single-player results settle predictions against the non-overlapping time brackets; `survivedFullRound: true` selects the final bracket. Multiplayer results use `players: [{ "playerId": "...", "survivalSeconds": 74.2 }]`; every player tied for maximum survival time is a winning prediction. Each winning spectator receives 50 tokens exactly once in the same transaction as the result.
 
@@ -125,7 +125,7 @@ All spectator routes are under `/api` and require an Auth0 user access token. Th
 
 - `POST /api/sessions/:code/join` creates/loads the profile and membership, and awards the +50 session-start balance once per membership.
 - `GET /api/sessions/:code` returns `{ sessionId, currentRound, totalRounds, status, roundState, endsAt, serverTime }`. `roundState` and `endsAt` are the game's latest report; `serverTime` is the backend's clock in Unix seconds so a phone with a wrong clock can still count down correctly. The web app polls this every 3s while a spectator is in a session, and a 404 means the game ended it.
-  - For a joined spectator it also returns `tokenBalance` and `correctPredictions`, and pays watch rewards while the round is `active`: +30 at 0:30, 1:00 and 1:30 into it (`interval_reward` in the ledger, each with an idempotency key so polling never pays twice). The +30 round reward is paid to everyone in the session by `POST /sessions/:code/round` when a round (1 or later) is reported. Correct predictions pay +50 when `/results` settles them. The web app no longer adds tokens on its own; it shows the backend's balance.
+  - For a joined spectator it also returns `tokenBalance` and `correctPredictions`, and pays watch rewards while the round is `active`: +30 every 15 seconds into it, at 0:15, 0:30 and 0:45 (`interval_reward` in the ledger, each with an idempotency key so polling never pays twice). The +30 round reward is paid to everyone in the session by `POST /sessions/:code/round` when a round (1 or later) is reported. Correct predictions pay +50 when `/results` settles them. The web app no longer adds tokens on its own; it shows the backend's balance.
 - `POST /api/sessions/:code/vote` upserts the current-round complex-event vote. Votes are only recorded; the round's winner (most votes, earliest on a tie) is queued once, as `triggeredBy: "Spectators"`, when the game reports the round `active`. A vote that arrives after that queues the winner only if nothing was queued yet. Don't queue per vote: the game picks up every new command right away, so each one would run.
 - `POST /api/sessions/:code/predict` upserts the current-round time-bracket or player prediction.
 - `GET /api/profile/me?auth0UserId=<Auth0 sub>` returns profile and lifetime totals.

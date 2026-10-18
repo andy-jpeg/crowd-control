@@ -20,7 +20,7 @@ The source of truth for events, prices, and limits is `shared/events.md`. Summar
 
 - **Single player.** One player per session. Multiplayer is a nice-to-have, not part of the core build
 - **Session:** 5 to 10 rounds. Anyone who joins mid-round waits until the next round starts
-- **Round:** the player survives for up to 2:00. Before it starts, spectators bet on a survival bracket: 0:00-0:30, 0:30-1:00, 1:00-1:30, 1:30-2:00. Surviving the full 2:00 counts as the 1:30-2:00 bracket
+- **Round:** the player survives for up to 1:00. Before it starts, spectators bet on a survival bracket: 0:00-0:15, 0:15-0:30, 0:30-0:45, 0:45-1:00. Surviving the full 1:00 counts as the 0:45-1:00 bracket
 - **Events:** basic events cost 30 tokens, complex events cost 80. Basic events have no per-round limit; complex events are limited to 1 per round, shared across all spectators. Basic events have no cooldown (spectators can spam them); complex events have a 30-second cooldown
 - **Tokens (spectators only):** +50 for joining a session, +30 for each round they stay for, +50 for betting the correct bracket. The player doesn't earn or spend tokens
 

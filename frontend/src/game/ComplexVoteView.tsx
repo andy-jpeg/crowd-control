@@ -34,10 +34,10 @@ const COMPLEX_EVENTS: ComplexEventOption[] = [
 ]
 
 export const TIME_INTERVALS = [
-  '0:00 - 0:30',
-  '0:30 - 1:00',
-  '1:00 - 1:30',
-  '1:30 - 2:00',
+  '0:00 - 0:15',
+  '0:15 - 0:30',
+  '0:30 - 0:45',
+  '0:45 - 1:00',
 ] as const
 
 const DEFAULT_SINGLE_PLAYER: PlayerInfo[] = [{ id: 'p1', name: 'Player 1' }]

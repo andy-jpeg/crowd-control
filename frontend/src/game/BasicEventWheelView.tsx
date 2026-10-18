@@ -20,6 +20,9 @@ const BASIC_EVENTS: BasicEventItem[] = [
   { id: 'ink_screen', name: 'Squid Screen', type: 'duration', duration: 10, cost: 30 },
 ]
 
+const REWARD_INTERVAL_SECONDS = 15 // matches the backend's watch rewards
+const ROUND_SECONDS = 60 // matches ROUND_TIME in the game
+
 interface BasicEventWheelViewProps {
   sessionCode?: string
   currentRound?: number
@@ -62,8 +65,8 @@ export function BasicEventWheelView({
   // Center selection index in the wheel (defaults to center event index 3: Banana Peels)
   const [selectedIndex, setSelectedIndex] = useState(3)
 
-  // 2-minute round timer (120 seconds)
-  const [secondsRemaining, setSecondsRemaining] = useState(120)
+  // 1-minute round timer
+  const [secondsRemaining, setSecondsRemaining] = useState(ROUND_SECONDS)
 
   // Cooldown tracker for duration events (10 seconds)
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({})
@@ -111,7 +114,7 @@ export function BasicEventWheelView({
   // Round (+30), every 30s of a round (+30) and correct prediction (+50) rewards are all paid by the backend.
   // The new balance arrives through the tokens prop, and the gain popup above shows the increase.
 
-  // +30 every 30s of a round (at 1:30, 1:00 and 0:30 left). The updated backend pays these itself,
+  // +30 every 15s of a round (0:45, 0:30 and 0:15 left). The updated backend pays these itself,
   // so they're only added here while it isn't reporting rounds (isLive is false)
   const awardedIntervalsRef = useRef<Set<number>>(new Set())
   useEffect(() => {
@@ -120,7 +123,7 @@ export function BasicEventWheelView({
 
   useEffect(() => {
     if (isLive) return
-    if (secondsRemaining > 0 && secondsRemaining < 120 && secondsRemaining % 30 === 0 &&
+    if (secondsRemaining > 0 && secondsRemaining < ROUND_SECONDS && secondsRemaining % REWARD_INTERVAL_SECONDS === 0 &&
         !awardedIntervalsRef.current.has(secondsRemaining)) {
       awardedIntervalsRef.current.add(secondsRemaining)
       onAddTokens?.(30)
@@ -141,7 +144,7 @@ export function BasicEventWheelView({
   }, [correctPredictions])
 
 
-  // Round timer countdown (2:00 -> 0:00) when there's no game to follow
+  // Round timer countdown (1:00 -> 0:00) when there's no game to follow
   useEffect(() => {
     if (isLive || secondsRemaining <= 0) return
     const timer = setInterval(() => {
@@ -150,13 +153,13 @@ export function BasicEventWheelView({
     return () => clearInterval(timer)
   }, [isLive, secondsRemaining])
 
-  // Follow the game's round: count down to its end time, and hold at 2:00 between rounds
+  // Follow the game's round: count down to its end time, and hold at 1:00 between rounds
   useEffect(() => {
     if (!isLive) return
     const update = () => {
       const left = roundEndsAt ? Math.max(0, Math.ceil((roundEndsAt - Date.now()) / 1000)) : 0
       setPhaseSecondsLeft(left)
-      setSecondsRemaining(roundState === 'active' ? Math.min(120, left) : 120)
+      setSecondsRemaining(roundState === 'active' ? left : ROUND_SECONDS) // the game's own end time, so it's right even if its round length changes
     }
     update()
     const timer = setInterval(update, 250)
