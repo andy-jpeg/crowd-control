@@ -8,6 +8,7 @@ local Assets, Podium = ServerStorage:FindFirstChild("Assets"), workspace:FindFir
 
 local InvertControls = ReplicatedStorage:FindFirstChild("InvertControls")
 local InkScreen = ReplicatedStorage:FindFirstChild("InkScreen")
+local ShakeScreen = ReplicatedStorage:FindFirstChild("ShakeScreen")
 
 local DEFAULT_GRAVITY = workspace.Gravity
 local COOLDOWNS = {basic = 0, complex = 30}
@@ -50,6 +51,9 @@ local SLIME_MAX_HEALTH, SLIME_FADE_TIME, SLIME_HEALTH_COLOR = 150, 0.6, Color3.f
 local SWORD_DAMAGE, SWORD_COOLDOWN, SWORD_REACH, SWORD_MAX_HEIGHT = 10, 0.4, 5, 6
 local PODIUM_SIZE, PODIUM_COLOR, PODIUM_MATERIAL = Podium and Podium.Size, Podium and Podium.Color, Podium and Podium.Material
 local INDICATOR_COLOR, INDICATOR_TRANSPARENCY = Color3.fromRGB(255, 40, 40), 0.6
+local BOMB_SHAKE, SLAM_SHAKE, BOULDER_SHAKE, TSUNAMI_SHAKE = 0.6, 1, 0.35, 0.5 -- degrees the screen shakes
+local TORNADO_SHAKE, SHRINK_SHAKE, LAVA_SHAKE = 0.2, 0.3, 0.3
+local BOMB_SHAKE_TIME, SLAM_SHAKE_TIME = 0.4, 0.5
 
 local EVENTS = {
 	bombs = {method = "Bombs", name = "Bombs", tier = "basic", params = {count = {default = 5, min = 1, max = 8}}},
@@ -78,6 +82,12 @@ local readyAt = {basic = 0, complex = 0}
 local pendingThreads = {}
 local slimePuddles, slowedHumanoids, slimeLoopRunning = {}, {}, false
 
+if not ShakeScreen then
+	ShakeScreen = Instance.new("RemoteEvent")
+	ShakeScreen.Name = "ShakeScreen"
+	ShakeScreen.Parent = ReplicatedStorage
+end
+
 local EventObjects = Instance.new("Folder")
 EventObjects.Name = "EventObjects"
 EventObjects.Parent = workspace
@@ -89,6 +99,10 @@ overlapParams.FilterDescendantsInstances = {EventObjects}
 local lavaRayParams = RaycastParams.new()
 lavaRayParams.FilterType = Enum.RaycastFilterType.Include
 lavaRayParams.FilterDescendantsInstances = {Podium}
+
+local function shakeScreen(strength, duration) -- FixedCamera on each client does the shaking
+	ShakeScreen:FireAllClients(strength, duration)
+end
 
 local function notBuilt(name)
 	warn("[EventsModule] " .. name .. " isn't built yet")
@@ -208,6 +222,7 @@ local function explode(bomb, indicator)
 	end)
 
 	explosion.Parent = workspace
+	shakeScreen(BOMB_SHAKE, BOMB_SHAKE_TIME)
 
 	local boomSound = Instance.new("Sound")
 	boomSound.SoundId = "rbxasset://sounds/Rocket shot.wav"
@@ -304,6 +319,7 @@ local function rollBoulder()
 
 	local rollTween = TweenService:Create(progress, tweenInfo, {Value = 1})
 	rollTween:Play()
+	shakeScreen(BOULDER_SHAKE, duration)
 
 	task.wait(duration)
 
@@ -1001,6 +1017,7 @@ function EventsModule:Reset()
 	InvertControls:FireAllClients(false)
 
 	InkScreen:FireAllClients(0)
+	shakeScreen(0, 0)
 
 	shrinkId += 1
 	if podiumTween then
@@ -1154,6 +1171,8 @@ function EventsModule:FloorIsLava(params)
 		TweenService:Create(Platform, tweenInfo1, {CFrame = Platform.CFrame + surface.up * LAVA_PLATFORM_HEIGHT}):Play()
 	end
 
+	shakeScreen(LAVA_SHAKE, LAVA_RISE_TIME)
+
 	local flashCount = math.max(1, math.floor(LAVA_WARNING_TIME / 0.5))
 	local tweenInfo2 = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, flashCount - 1, true)
 	lavaTween = TweenService:Create(Podium, tweenInfo2, {Color = LAVA_COLOR})
@@ -1214,6 +1233,7 @@ function EventsModule:ShrinkingPodium(params)
 
 	local tweenInfo2 = TweenInfo.new(SHRINK_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
 	playPodiumTween(tweenInfo2, {Size = getShrunkSize(SHRINK_SCALE)})
+	shakeScreen(SHRINK_SHAKE, SHRINK_TIME)
 
 	task.wait(SHRINK_TIME + params.duration)
 	if shrinkId ~= thisId then -- a newer ShrinkingPodium or Reset owns the podium now
@@ -1222,6 +1242,7 @@ function EventsModule:ShrinkingPodium(params)
 
 	local tweenInfo3 = TweenInfo.new(SHRINK_GROW_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	playPodiumTween(tweenInfo3, {Size = PODIUM_SIZE})
+	shakeScreen(SHRINK_SHAKE, SHRINK_GROW_TIME)
 end
 
 function EventsModule:Tornado(params)
@@ -1275,6 +1296,7 @@ function EventsModule:Tornado(params)
 
 	local lastHit = {}
 	local endTime = os.clock() + params.duration
+	shakeScreen(TORNADO_SHAKE, params.duration)
 
 	while os.clock() < endTime do
 		local deltaTime = RunService.Heartbeat:Wait()
@@ -1395,6 +1417,7 @@ function EventsModule:Tsunami(params)
 
 	local sweepTween = TweenService:Create(progress, tweenInfo, {Value = 1})
 	sweepTween:Play()
+	shakeScreen(TSUNAMI_SHAKE, duration)
 
 	task.wait(duration)
 	if not House.Parent then
@@ -1548,6 +1571,8 @@ function EventsModule:BlobFight(params)
 	end
 
 	local function slam()
+		shakeScreen(SLAM_SHAKE, SLAM_SHAKE_TIME)
+
 		for _, player in Players:GetPlayers() do
 			local character = player.Character
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")

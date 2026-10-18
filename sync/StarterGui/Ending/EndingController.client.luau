@@ -13,6 +13,7 @@ local EXIT_TIME, EXIT_MARGIN, EXIT_LEAD = 0.45, 20, 0.1 -- leaves just before th
 local COUNTDOWN_FORMAT = "Back to menu in %d"
 local ROW_HEIGHT, ROW_PADDING, HEADER_HEIGHT, PANEL_PADDING = 34, 6, 40, 12
 local DEFAULT_ROUND_TIME = 60
+local OUTLINE_INSET = 3 -- room for the 2px row outlines inside the lists
 local SURFACE_COLOR, ROW_COLOR = Color3.fromRGB(237, 181, 76), Color3.fromRGB(225, 158, 29)
 local BORDER_COLOR, TEXT_COLOR, MUTED_TEXT_COLOR = Color3.fromRGB(195, 93, 42), Color3.fromRGB(43, 22, 6), Color3.fromRGB(107, 58, 18)
 local LIGHT_COLOR = Color3.fromRGB(255, 247, 232)
@@ -50,6 +51,15 @@ local function useNunito(root, skip) -- swaps every text element to Nunito, keep
 			item.FontFace = Font.new(NUNITO, item.FontFace.Weight, item.FontFace.Style)
 		end
 	end
+end
+
+local function padForOutlines(List) -- rows have outlines drawn just outside them, which the list would cut off
+	if not List or List:FindFirstChildOfClass("UIPadding") then return end
+	local UIPadding = Instance.new("UIPadding")
+	for _, side in {"PaddingTop", "PaddingBottom", "PaddingLeft", "PaddingRight"} do
+		UIPadding[side] = UDim.new(0, OUTLINE_INSET)
+	end
+	UIPadding.Parent = List
 end
 
 local function createText(name, text, size, color, alignment)
@@ -120,6 +130,8 @@ local RoundList = Ending:FindFirstChild("RoundList") or buildPanel("RoundList", 
 local Stats = Ending:FindFirstChild("Stats") or buildPanel("Stats", "Stats", 1, UDim2.new(1, -24, 0.56, 0))
 local Countdown = Ending:FindFirstChild("Countdown") or buildHeadline("Countdown", "", 26, UDim2.new(0.5, 0, 1, -60), 34)
 local RoundRows, StatRows = RoundList:FindFirstChild("List", true), Stats:FindFirstChild("List", true)
+padForOutlines(RoundRows)
+padForOutlines(StatRows)
 
 useNunito(Ending) -- covers anything you copied in from Studio
 
@@ -162,6 +174,9 @@ local function formatTime(seconds)
 end
 
 local function clearRows(List)
+	if List:IsA("ScrollingFrame") then
+		List.CanvasPosition = Vector2.zero -- start at the top
+	end
 	for _, child in List:GetChildren() do
 		if child:IsA("Frame") then
 			child:Destroy()
@@ -170,8 +185,10 @@ local function clearRows(List)
 end
 
 local function createRow(List, label, value, order, progress)
+	local baseZ = List.ZIndex + 1 -- always above the panel, even if the GUI layers by global ZIndex
 	local Row = Instance.new("Frame")
 	Row.Name = "Row"
+	Row.ZIndex = baseZ
 	Row.Size = UDim2.new(1, -8, 0, ROW_HEIGHT) -- leaves room for the scroll bar
 	Row.BackgroundColor3, Row.BorderSizePixel, Row.LayoutOrder = ROW_COLOR, 0, order
 	Row.ClipsDescendants = true
@@ -183,6 +200,7 @@ local function createRow(List, label, value, order, progress)
 		Progress.Name = "Progress"
 		Progress.Size = UDim2.fromScale(math.clamp(progress, 0, 1), 1) -- how much of the round was survived
 		Progress.BackgroundColor3, Progress.BackgroundTransparency, Progress.BorderSizePixel = BORDER_COLOR, 0.7, 0
+		Progress.ZIndex = baseZ
 		addCorner(Progress, UDim.new(0, 8))
 		Progress.Parent = Row
 	end
@@ -190,15 +208,17 @@ local function createRow(List, label, value, order, progress)
 	local Label = createText("Label", label, 18, TEXT_COLOR)
 	Label.Position = UDim2.fromOffset(10, 0)
 	Label.Size = UDim2.new(0.6, -10, 1, 0)
-	Label.ZIndex = 2
+	Label.ZIndex = baseZ + 1
 	Label.Parent = Row
 
 	local Value = createText("Value", value, 18, MUTED_TEXT_COLOR, Enum.TextXAlignment.Right)
 	Value.AnchorPoint = Vector2.new(1, 0)
 	Value.Position = UDim2.new(1, -10, 0, 0)
 	Value.Size = UDim2.new(0.4, 0, 1, 0)
-	Value.ZIndex = 2
+	Value.ZIndex = baseZ + 1
 	Value.Parent = Row
+
+	Row.Parent = List
 end
 
 local function getSummary()
@@ -283,14 +303,23 @@ local function leaveEnding()
 	end
 end
 
-local function runCountdown(id, endsAt)
+local function runCountdown(id)
+	local shownAt = os.clock()
+	local hasLeft = false
 	while id == showId do
-		local remaining = math.max(0, math.ceil(endsAt - workspace:GetServerTimeNow()))
-		Countdown.Text = string.format(COUNTDOWN_FORMAT, remaining)
-		if remaining <= 0 then
+		local endsAt = ReplicatedStorage:GetAttribute("StateEndsAt") or 0 -- read every tick, never a stale value from the last phase
+		local timeLeft = endsAt - workspace:GetServerTimeNow()
+		Countdown.Text = string.format(COUNTDOWN_FORMAT, math.max(0, math.ceil(timeLeft)))
+
+		local isSettled = os.clock() - shownAt >= SHOW_DELAY + POP_TIME + POP_STAGGER * #popElements -- everything has popped in
+		if not hasLeft and isSettled and endsAt > 0 and timeLeft <= EXIT_TIME + EXIT_LEAD then
+			hasLeft = true
+			leaveEnding() -- slide out just before the menu comes back
+		end
+		if endsAt > 0 and timeLeft <= 0 then
 			break
 		end
-		task.wait(0.25)
+		task.wait(0.1)
 	end
 end
 
@@ -306,12 +335,11 @@ local function updateEnding()
 	end
 
 	local id = showId
-	local endsAt = ReplicatedStorage:GetAttribute("StateEndsAt") or 0
 	for element, position in homePositions do
 		element.Position = position
 	end
 	fillSummary()
-	task.spawn(runCountdown, id, endsAt)
+	task.spawn(runCountdown, id)
 
 	task.delay(SHOW_DELAY, function()
 		if id ~= showId then return end -- the cover is still growing until now
@@ -321,11 +349,6 @@ local function updateEnding()
 		end
 	end)
 
-	task.delay(math.max(SHOW_DELAY + POP_TIME, endsAt - workspace:GetServerTimeNow() - EXIT_TIME - EXIT_LEAD), function()
-		if id == showId then
-			leaveEnding()
-		end
-	end)
 end
 
 Ending.Enabled = false

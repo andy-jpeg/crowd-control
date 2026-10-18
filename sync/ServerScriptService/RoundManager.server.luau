@@ -32,10 +32,10 @@ local sessionRounds, eventCounts, eventsRun = {}, {}, 0 -- for the ending screen
 local function setState(state, duration)
 	roundState = state
 
-	ReplicatedStorage:SetAttribute("RoundState", state)
 	ReplicatedStorage:SetAttribute("Round", currentRound)
 	ReplicatedStorage:SetAttribute("TotalRounds", TOTAL_ROUNDS)
 	ReplicatedStorage:SetAttribute("StateEndsAt", duration and workspace:GetServerTimeNow() + duration or 0)
+	ReplicatedStorage:SetAttribute("RoundState", state) -- last, so anything reacting to the new state already sees its end time
 end
 
 local function reportState(duration)

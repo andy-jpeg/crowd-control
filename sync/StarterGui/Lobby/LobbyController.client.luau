@@ -2,6 +2,7 @@ local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -21,14 +22,16 @@ local NO_CODE = "Offline"
 local SHOW_DELAY = 0.6 -- matches the menu's cover transition
 local POP_TIME = 0.4
 local POP_STAGGER = 0.08
-local EXIT_TIME, START_SHRINK_TIME, EXIT_MARGIN = 0.45, 0.3, 20
+local EXIT_TIME, EXIT_MARGIN = 0.45, 20
 local LEAVE_TIMEOUT = 5
 local HOVER_SCALE, HOVER_TIME = 1.1, 0.15
 local LOBBY_MUSIC_ID, ROUND_MUSIC_ID = "rbxassetid://1841647093", "rbxassetid://1837849285" -- Life in an Elevator, Night Vision
 local MUSIC_VOLUME, MUSIC_FADE_TIME = 0.4, 1.5
 local START_SWAY_ANGLE, START_SWAY_TIME, START_PULSE_SCALE, START_PULSE_TIME = 2.5, 2.6, 1.035, 1.8 -- calmer than the logo (5, 2, 1.06, 1.4)
-local EMPTY_TEXT = "Waiting for spectators...\nJoin at survivalofthe.fit"
+local EMPTY_TEXT = "Waiting for spectators...\nJoin at <u>survivalofthe.fit</u>" -- rich text, so the address is underlined
+local MUSIC_LOAD_TIMEOUT = 10
 local FALLBACK_NAME = "A spectator"
+local OUTLINE_INSET = 3 -- room for the 2px row outlines inside the list
 local ROW_HEIGHT, ROW_PADDING, HEADER_HEIGHT, LIST_PADDING = 34, 6, 40, 12
 local SURFACE_COLOR, ROW_COLOR = Color3.fromRGB(237, 181, 76), Color3.fromRGB(225, 158, 29)
 local BORDER_COLOR, TEXT_COLOR, MUTED_TEXT_COLOR = Color3.fromRGB(195, 93, 42), Color3.fromRGB(43, 22, 6), Color3.fromRGB(107, 58, 18)
@@ -38,8 +41,15 @@ local SLIDER_MIN_WIDTH, SLIDER_MAX_WIDTH, SLIDER_GAP = 200, 340, 14
 local LABEL_HEIGHT, TRACK_HEIGHT, KNOB_SIZE, KNOB_PRESS_SCALE = 30, 14, 30, 1.15
 local SLIDER_HEIGHT = LABEL_HEIGHT + KNOB_SIZE + 6
 local SLIDER_TIME = 0.12
+local ICON_IDS = {75794528952903, 75283171144013, 74155331991672, 92805238287290, 128506163637798, 135499271414263, 132980640218769, 125927225595333}
+local ICON_SIZE, ICON_GAP, ICON_SPEED, BAR_HEIGHT = 110, 36, 60, 130 -- 60 pixels per second is one pixel a frame, so it never stutters
+local MAX_SCROLL_STEP = 1 / 30 -- a lag spike won't make the bars jump
+local ICON_BARS = {
+	{name = "IconBar1", edge = "bottom", direction = -1}, -- -1 scrolls left, 1 scrolls right
+	{name = "IconBar2", edge = "top", direction = 1, isReversed = true}, -- icons in the opposite order
+}
 
-local popGoal, shrinkGoal = {Scale = 1}, {Scale = 0}
+local popGoal = {Scale = 1}
 local startGoal1 = {Rotation = START_SWAY_ANGLE}
 local hoverGoal1, hoverGoal2 = {Scale = HOVER_SCALE}, {Scale = 1}
 local musicGoal1, musicGoal2 = {Volume = MUSIC_VOLUME}, {Volume = 0}
@@ -81,6 +91,15 @@ local function useNunito(root, skips) -- swaps every text element to Nunito, kee
 			item.FontFace = Font.new(NUNITO, item.FontFace.Weight, item.FontFace.Style)
 		end
 	end
+end
+
+local function padForOutlines(List) -- rows have outlines drawn just outside them, which the list would cut off
+	if not List or List:FindFirstChildOfClass("UIPadding") then return end
+	local UIPadding = Instance.new("UIPadding")
+	for _, side in {"PaddingTop", "PaddingBottom", "PaddingLeft", "PaddingRight"} do
+		UIPadding[side] = UDim.new(0, OUTLINE_INSET)
+	end
+	UIPadding.Parent = List
 end
 
 local function createText(name, text, size, color, alignment, font)
@@ -198,6 +217,31 @@ local function buildRounds()
 	return Rounds
 end
 
+local function buildIconBar(name, edge)
+	local edgeY = edge == "top" and 0 or 1
+
+	local IconBar = Instance.new("Frame")
+	IconBar.Name = name
+	IconBar.AnchorPoint = Vector2.new(0.5, edgeY)
+	IconBar.Position = UDim2.fromScale(0.5, edgeY)
+	IconBar.Size = UDim2.new(1, 0, 0, BAR_HEIGHT)
+	IconBar.BackgroundTransparency, IconBar.BorderSizePixel, IconBar.ZIndex = 1, 0, 0 -- behind everything else in the lobby
+	IconBar.ClipsDescendants = true
+
+	local Icon = Instance.new("ImageLabel")
+	Icon.Name = "Icon"
+	Icon.AnchorPoint = Vector2.new(0, 0.5)
+	Icon.Position = UDim2.fromScale(0, 0.5)
+	Icon.Size = UDim2.fromOffset(ICON_SIZE, ICON_SIZE)
+	Icon.BackgroundTransparency = 1
+	Icon.ScaleType = Enum.ScaleType.Fit
+	Icon.Visible = false -- the style template, every scrolling icon is a copy of it
+	Icon.Parent = IconBar
+
+	IconBar.Parent = Lobby
+	return IconBar
+end
+
 local isCustomRounds = Lobby:FindFirstChild("Rounds") ~= nil -- a Rounds you placed in Studio keeps its own position
 local Spectators = Lobby:FindFirstChild("Spectators") or buildSpectators()
 local Rounds = Lobby:FindFirstChild("Rounds") or buildRounds()
@@ -209,7 +253,35 @@ local function findPart(parent, name)
 	return part
 end
 
+local OldIconBar = Lobby:FindFirstChild("IconBar")
+if OldIconBar and not Lobby:FindFirstChild(ICON_BARS[1].name) then
+	OldIconBar.Name = ICON_BARS[1].name -- a single IconBar copied in earlier becomes the bottom one
+end
+
+local iconBars = {}
+for _, info in ICON_BARS do
+	local IconBar = Lobby:FindFirstChild(info.name) or buildIconBar(info.name, info.edge)
+	local OldStrip = IconBar:FindFirstChild("Strip")
+	if OldStrip then
+		OldStrip:Destroy() -- a bar copied from a test still has its scrolling icons, they get rebuilt from Icon
+	end
+
+	local ids = table.clone(ICON_IDS)
+	if info.isReversed then
+		for index = 1, #ids do
+			ids[index] = ICON_IDS[#ICON_IDS - index + 1]
+		end
+	end
+
+	table.insert(iconBars, {IconBar = IconBar, Template = findPart(IconBar, "Icon"), ids = ids, direction = info.direction, setWidth = 0, offset = 0})
+end
+local IconBar1, IconBar2 = iconBars[1].IconBar, iconBars[2].IconBar
+
 local Header, List, Empty = findPart(Spectators, "Header"), findPart(Spectators, "List"), findPart(Spectators, "Empty")
+padForOutlines(List)
+if Empty then
+	Empty.RichText, Empty.Text = true, EMPTY_TEXT -- also applies to an Empty you copied in from Studio
+end
 local RoundsLabel, Track, Fill, Knob = findPart(Rounds, "RoundsLabel"), findPart(Rounds, "Track"), findPart(Rounds, "Fill"), findPart(Rounds, "Knob")
 local Hitbox = Rounds:FindFirstChild("Hitbox", true) or Track -- without a Hitbox, the track itself is the drag area
 local KnobScale = Knob and (Knob:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", Knob))
@@ -224,15 +296,26 @@ end
 
 local LobbyMusic = createMusic("LobbyMusic", LOBBY_MUSIC_ID)
 local RoundMusic = createMusic("RoundMusic", ROUND_MUSIC_ID)
+
+for _, Music in {LobbyMusic, RoundMusic} do
+	task.delay(MUSIC_LOAD_TIMEOUT, function()
+		if not Music.IsLoaded then -- usually the audio's permissions: the game has to be allowed to use it
+			warn("[Lobby] " .. Music.Name .. " (" .. Music.SoundId .. ") didn't load. Check that the audio is public or shared with this experience")
+		end
+	end)
+end
 local currentMusic = nil
 
 useNunito(Lobby, {Code, Spectators}) -- the code label and spectator list keep their font
 
-local popElements = {CodeImage, Code, Rounds, Spectators, Start}
+local popElements = {IconBar1, IconBar2, CodeImage, Code, Rounds, Spectators, Start}
 local exitGroups = {
 	{direction = "top", elements = {CodeImage, Code}},
 	{direction = "right", elements = {Spectators}},
-	{direction = "bottom", elements = {Rounds}},
+	{direction = "left", elements = {Rounds}},
+	{direction = "bottom", elements = {Start}},
+	{direction = "nearest", elements = {IconBar1}}, -- top or bottom, whichever edge you put it closer to
+	{direction = "nearest", elements = {IconBar2}},
 }
 for _, group in exitGroups do
 	for _, element in group.elements do
@@ -377,25 +460,87 @@ local function getClickPosition(inputObject)
 	return Start.AbsolutePosition + Start.AbsoluteSize / 2 + inset
 end
 
+local function placeStrip(bar) -- scrolling right starts a full set to the left, so the strip still covers the bar
+	local offset = math.round(bar.offset) -- whole pixels, so every frame moves the same amount
+	bar.Strip.Position = UDim2.fromOffset(bar.direction < 0 and -offset or offset - bar.setWidth, 0)
+end
+
+local function buildStrip(bar) -- enough copies of the icons to cover the bar, plus one so the loop never shows a gap
+	local Template = bar.Template
+	if not Template then return end
+	local iconSize, barWidth = Template.AbsoluteSize, bar.IconBar.AbsoluteSize.X
+	if iconSize.X <= 0 or barWidth <= 0 then return end -- not laid out yet, tries again once the bar has a size
+
+	local step = math.round(iconSize.X + ICON_GAP) -- whole pixels so the loop point lines up exactly
+	bar.setWidth = #ICON_IDS * step
+	local copies = math.ceil(barWidth / bar.setWidth) + 1
+
+	if bar.Strip then
+		bar.Strip:Destroy()
+	end
+	local Strip = Instance.new("Frame")
+	Strip.Name = "Strip"
+	Strip.BackgroundTransparency = 1
+	Strip.Size = UDim2.new(0, bar.setWidth * copies, 1, 0)
+
+	for copy = 0, copies - 1 do
+		for index, id in bar.ids do
+			local ScrollingIcon = Template:Clone()
+			ScrollingIcon.Name = "ScrollingIcon"
+			ScrollingIcon.Image = "rbxassetid://" .. id
+			ScrollingIcon.Position = UDim2.new(0, (copy * #ICON_IDS + index - 1) * step + ICON_GAP / 2, Template.Position.Y.Scale, Template.Position.Y.Offset)
+			ScrollingIcon.Size = UDim2.fromOffset(iconSize.X, iconSize.Y)
+			ScrollingIcon.Visible = true
+			ScrollingIcon.Parent = Strip
+		end
+	end
+
+	bar.Strip = Strip
+	bar.offset %= bar.setWidth
+	placeStrip(bar)
+	Strip.Parent = bar.IconBar
+end
+
+local function buildStrips()
+	for _, bar in iconBars do
+		buildStrip(bar)
+	end
+end
+
+local function getDirection(group)
+	local element = group.elements[1]
+	if group.direction ~= "nearest" or not element then
+		return group.direction
+	end
+
+	local center = element.AbsolutePosition.Y - Lobby.AbsolutePosition.Y + element.AbsoluteSize.Y / 2
+	return center > Lobby.AbsoluteSize.Y / 2 and "bottom" or "top"
+end
+
 local function getExitOffset(group)
 	local screenSize = Lobby.AbsoluteSize
+	local direction = getDirection(group)
 	local distance = 0
 	for _, element in group.elements do -- grouped elements travel the same distance so they stay together
 		local position, size = element.AbsolutePosition - Lobby.AbsolutePosition, element.AbsoluteSize
-		if group.direction == "top" then
+		if direction == "top" then
 			distance = math.max(distance, position.Y + size.Y)
-		elseif group.direction == "bottom" then
+		elseif direction == "bottom" then
 			distance = math.max(distance, screenSize.Y - position.Y)
+		elseif direction == "left" then
+			distance = math.max(distance, position.X + size.X)
 		else
 			distance = math.max(distance, screenSize.X - position.X)
 		end
 	end
 
 	distance += EXIT_MARGIN
-	if group.direction == "top" then
+	if direction == "top" then
 		return UDim2.fromOffset(0, -distance)
-	elseif group.direction == "bottom" then
+	elseif direction == "bottom" then
 		return UDim2.fromOffset(0, distance)
+	elseif direction == "left" then
+		return UDim2.fromOffset(-distance, 0)
 	end
 	return UDim2.fromOffset(distance, 0)
 end
@@ -407,27 +552,24 @@ local function resetPositions()
 end
 
 local function leaveLobby()
-	local tweenInfo1 = TweenInfo.new(EXIT_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In)
-	local tweenInfo2 = TweenInfo.new(START_SHRINK_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+	local tweenInfo = TweenInfo.new(EXIT_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In)
 
 	local exitTweens = {}
 	for _, group in exitGroups do
 		local offset = getExitOffset(group)
 		for _, element in group.elements do
-			table.insert(exitTweens, TweenService:Create(element, tweenInfo1, {Position = homePositions[element] + offset}))
+			table.insert(exitTweens, TweenService:Create(element, tweenInfo, {Position = homePositions[element] + offset}))
 		end
 	end
-	local startTween = TweenService:Create(getScale(Start), tweenInfo2, shrinkGoal)
 
 	for _, tween in exitTweens do
 		tween:Play()
 	end
-	startTween:Play()
 end
 
 local function animateStart()
 	local size = Start.Size
-	local startGoal2 = {Size = UDim2.new(size.X.Scale * START_PULSE_SCALE, size.X.Offset * START_PULSE_SCALE, size.Y.Scale * START_PULSE_SCALE, size.Y.Offset * START_PULSE_SCALE)} -- pulses Size since its UIScale handles the pop in and shrink
+	local startGoal2 = {Size = UDim2.new(size.X.Scale * START_PULSE_SCALE, size.X.Offset * START_PULSE_SCALE, size.Y.Scale * START_PULSE_SCALE, size.Y.Offset * START_PULSE_SCALE)} -- pulses Size since its UIScale handles the pop in and hover
 
 	local tweenInfo1 = TweenInfo.new(START_SWAY_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
 	local tweenInfo2 = TweenInfo.new(START_PULSE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
@@ -477,7 +619,7 @@ local function updateMusic()
 			playMusic(LobbyMusic)
 		end
 	elseif roundState == nil or roundState == "menu" then
-		playMusic(nil)
+		playMusic(LobbyMusic) -- the main menu shares the lobby track, so it keeps playing from Play into the lobby
 	else
 		playMusic(RoundMusic)
 	end
@@ -519,6 +661,7 @@ local function updateLobby()
 		if id ~= showId then return end -- left the lobby before the cover finished
 		Lobby.Enabled = true
 		placeRounds()
+		buildStrips()
 		for index, element in popElements do
 			popIn(element, (index - 1) * POP_STAGGER)
 		end
@@ -583,6 +726,22 @@ for _, signal in {CodeImage:GetPropertyChangedSignal("AbsolutePosition"), CodeIm
 	signal:Connect(placeRounds)
 end
 
+for _, bar in iconBars do
+	bar.IconBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		buildStrip(bar)
+	end)
+end
+RunService.RenderStepped:Connect(function(deltaTime)
+	if not Lobby.Enabled then return end
+	local step = ICON_SPEED * math.min(deltaTime, MAX_SCROLL_STEP)
+	for _, bar in iconBars do
+		if bar.Strip and bar.setWidth > 0 then
+			bar.offset = (bar.offset + step) % bar.setWidth -- one full set scrolled looks identical to the start, so it loops seamlessly
+			placeStrip(bar)
+		end
+	end
+end)
+
 setRounds(MIN_ROUNDS, true)
 Lobby.Enabled = false
 ReplicatedStorage:GetAttributeChangedSignal("RoundState"):Connect(updateLobby)
@@ -593,7 +752,7 @@ if Start then
 	animateStart()
 
 	local function setStartHovered(isHovered)
-		if isLeaving or not isShown then return end -- don't fight the pop in or the shrink
+		if isLeaving or not isShown then return end -- don't fight the pop in or the exit
 
 		local tweenInfo = TweenInfo.new(HOVER_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
