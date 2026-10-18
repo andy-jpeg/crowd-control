@@ -102,6 +102,33 @@ export function BasicEventWheelView({
   // Touch gesture tracking for wheel swipe
   const touchStartY = useRef<number | null>(null)
   const isDragging = useRef(false)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  // Prevent touchmove and wheel from scrolling the outer web page on mobile / desktop
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const handleNativeTouchMove = (e: TouchEvent) => {
+      if (e.cancelable) {
+        e.preventDefault()
+      }
+    }
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      if (e.cancelable) {
+        e.preventDefault()
+      }
+    }
+
+    el.addEventListener('touchmove', handleNativeTouchMove, { passive: false })
+    el.addEventListener('wheel', handleNativeWheel, { passive: false })
+
+    return () => {
+      el.removeEventListener('touchmove', handleNativeTouchMove)
+      el.removeEventListener('wheel', handleNativeWheel)
+    }
+  }, [])
 
   // Floating token gain animation state: { id, amount }
   const [tokenGain, setTokenGain] = useState<{ id: number; amount: number } | null>(null)
@@ -329,6 +356,7 @@ export function BasicEventWheelView({
 
   return (
     <div
+      ref={containerRef}
       className="basic-page-container"
       onWheel={handleWheel}
       onTouchStart={handleTouchStart}
