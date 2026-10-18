@@ -11,6 +11,7 @@ import {
   voteComplexEvent,
 } from './api/client'
 import { JoinSessionView } from './game/JoinSessionView'
+import { WaitingForHostView } from './game/WaitingForHostView'
 import { ComplexVoteView } from './game/ComplexVoteView'
 import { BasicEventWheelView } from './game/BasicEventWheelView'
 import { SessionEndView } from './game/SessionEndView'
@@ -28,7 +29,7 @@ function readAuth0Subject(subject: unknown): string | null {
 
 function SpectatorApp() {
   const { user, getAccessTokenSilently } = useAuth0()
-  const [currentView, setCurrentView] = useState<'profile' | 'join' | 'vote' | 'wheel' | 'end'>('profile')
+  const [currentView, setCurrentView] = useState<'profile' | 'join' | 'waiting' | 'vote' | 'wheel' | 'end'>('profile')
   const [sessionCode, setSessionCode] = useState('')
   const [spectatorName, setSpectatorName] = useState('')
   const [currentRound, setCurrentRound] = useState(1)
@@ -79,7 +80,7 @@ function SpectatorApp() {
       setTotalRounds(joined.totalRounds ?? 5)
       setRoundState('lobby')
       setRoundEndsAt(null)
-      setCurrentView('vote')
+      setCurrentView('waiting') // the waiting page moves on by itself once the host presses Start
     } catch (err) {
       console.warn('Join failed:', err)
       throw err // the join screen shows the message, so a wrong code or blocked request can't look like it worked
@@ -87,7 +88,7 @@ function SpectatorApp() {
   }, [getSpectatorIdentity, user])
 
   useEffect(() => {
-    if (!sessionCode || (currentView !== 'vote' && currentView !== 'wheel')) return
+    if (!sessionCode || (currentView !== 'waiting' && currentView !== 'vote' && currentView !== 'wheel')) return
     let cancelled = false
 
     const poll = async () => {
@@ -102,6 +103,7 @@ function SpectatorApp() {
         setRoundEndsAt(info.endsAt === null ? null : info.endsAt * 1000 + clockOffset)
         if (info.tokenBalance !== null) setTokens(info.tokenBalance) // rewards are paid by the backend, so its balance is the real one
         if (info.correctPredictions !== null) setCorrectPredictions(info.correctPredictions)
+        if (currentView === 'waiting' && info.roundState !== 'lobby') setCurrentView('vote') // the host pressed Start
       } catch (err) {
         if (cancelled) return
         if (err instanceof ApiError && err.status === 404) {
@@ -179,6 +181,16 @@ function SpectatorApp() {
         <JoinSessionView
           onJoin={handleJoin}
           onBack={() => setCurrentView('profile')}
+        />
+      )}
+
+      {currentView === 'waiting' && (
+        <WaitingForHostView
+          sessionCode={sessionCode}
+          spectatorName={spectatorName}
+          tokens={tokens}
+          onHostStart={() => setCurrentView('vote')}
+          onLeaveSession={() => setCurrentView('join')}
         />
       )}
 
