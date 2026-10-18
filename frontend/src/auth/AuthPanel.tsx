@@ -233,7 +233,7 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
 
       <div className="stats-grid">
         <div className="stat-card">
-          <span className="stat-label">Total Session Joined</span>
+          <span className="stat-label">Total Sessions Joined</span>
           <strong className="stat-value">{profile?.totalSessionsJoined ?? 0}</strong>
         </div>
         <div className="stat-card">

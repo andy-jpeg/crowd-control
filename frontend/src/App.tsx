@@ -11,6 +11,7 @@ import {
 import { JoinSessionView } from './game/JoinSessionView'
 import { ComplexVoteView } from './game/ComplexVoteView'
 import { BasicEventWheelView } from './game/BasicEventWheelView'
+import { SessionEndView } from './game/SessionEndView'
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID
@@ -23,12 +24,13 @@ function readAuth0Subject(subject: unknown): string | null {
 
 function SpectatorApp() {
   const { user, getAccessTokenSilently } = useAuth0()
-  const [currentView, setCurrentView] = useState<'profile' | 'join' | 'vote' | 'wheel'>('profile')
+  const [currentView, setCurrentView] = useState<'profile' | 'join' | 'vote' | 'wheel' | 'end'>('profile')
   const [sessionCode, setSessionCode] = useState('')
   const [spectatorName, setSpectatorName] = useState('')
   const [currentRound, setCurrentRound] = useState(1)
   const [totalRounds, setTotalRounds] = useState(5)
   const [tokens, setTokens] = useState(0)
+  const [correctPredictions] = useState(3)
 
   const getSpectatorIdentity = useCallback(async (): Promise<{ token: string; sub: string }> => {
     const sub: string = readAuth0Subject(user?.sub) ?? ''
@@ -127,7 +129,22 @@ function SpectatorApp() {
           tokens={tokens}
           spectatorName={spectatorName}
           onBackToVote={() => setCurrentView('vote')}
+          onEndSession={(endTokens) => {
+            setTokens(endTokens)
+            setCurrentView('end')
+          }}
           onTriggerEvent={handlePurchase}
+        />
+      )}
+
+      {currentView === 'end' && (
+        <SessionEndView
+          sessionCode={sessionCode}
+          correctPredictions={correctPredictions}
+          totalRounds={totalRounds}
+          finalTokens={tokens}
+          onBackToDashboard={() => setCurrentView('profile')}
+          onJoinNewSession={() => setCurrentView('join')}
         />
       )}
     </>

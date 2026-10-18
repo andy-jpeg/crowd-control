@@ -28,6 +28,7 @@ interface BasicEventWheelViewProps {
   spectatorName?: string
   onTriggerEvent: (eventId: string) => Promise<number>
   onBackToVote?: () => void
+  onEndSession?: (finalTokens: number) => void
 }
 
 export function BasicEventWheelView({
@@ -38,6 +39,7 @@ export function BasicEventWheelView({
   spectatorName,
   onTriggerEvent,
   onBackToVote,
+  onEndSession,
 }: BasicEventWheelViewProps) {
   // Center selection index in the wheel (defaults to center event index 3: Banana Peels)
   const [selectedIndex, setSelectedIndex] = useState(3)
@@ -276,6 +278,17 @@ export function BasicEventWheelView({
         {onBackToVote && (
           <button type="button" className="dev-nav-btn" onClick={onBackToVote}>
             ← Back to 15s Vote Screen
+          </button>
+        )}
+
+        {onEndSession && (
+          <button
+            type="button"
+            className="dev-nav-btn"
+            style={{ marginTop: '0.35rem' }}
+            onClick={() => onEndSession(tokens)}
+          >
+            Finish Session → (Demo Ending Screen)
           </button>
         )}
       </div>
