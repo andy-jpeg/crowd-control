@@ -680,10 +680,14 @@ test("validates totalRounds on session creation (min 5, max 10)", async () => {
 
 test("updates round and totalRounds via POST /sessions/:code/round", async () => {
   const statements: string[] = [];
-  const pool = mockPool((sql) => {
+  const rewardValues: unknown[][] = [];
+  const pool = mockPool((sql, values) => {
     statements.push(sql);
     if (sql.includes("SELECT id, session_token, status FROM sessions")) {
       return { rows: [{ id: "31", session_token: "00000000-0000-4000-8000-000000000001", status: "active" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO token_ledger") && sql.includes("'round_reward'")) {
+      rewardValues.push(values ?? []);
     }
     return { rows: [], rowCount: 1 };
   });
@@ -702,9 +706,24 @@ test("updates round and totalRounds via POST /sessions/:code/round", async () =>
       });
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), { ok: true, round: 2, totalRounds: 8 });
+
+      const retry = await fetch(`${baseUrl}/sessions/KWPZ/round`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-session-token": "00000000-0000-4000-8000-000000000001"
+        },
+        body: JSON.stringify({ round: 2, totalRounds: 8, state: "intermission" })
+      });
+      assert.equal(retry.status, 200);
     }
   );
   assert.ok(statements.some((sql) => sql.includes("UPDATE sessions") && sql.includes("total_rounds")));
+  assert.equal(rewardValues.length, 2);
+  assert.deepEqual(rewardValues, [["31", 2], ["31", 2]]);
+  assert.ok(statements.some((sql) =>
+    sql.includes("'round_reward'") && sql.includes("ON CONFLICT (idempotency_key) DO NOTHING")
+  ));
 });
 
 test("serves session details to spectators via GET /api/sessions/:code", async () => {
@@ -791,5 +810,4 @@ test("returns live spectator list and token balances when Roblox polls events", 
     }
   );
 });
-
 
