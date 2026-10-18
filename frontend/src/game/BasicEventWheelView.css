@@ -127,8 +127,21 @@
   height: 18px;
   border-radius: 50%;
   background: var(--cc-surface);
-  border: 1.5px solid var(--cc-border-color);
+  border: 2px solid var(--cc-border-color);
   box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.15);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.token-gain-mini-badge::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px dashed var(--cc-border-color);
+  opacity: 0.6;
 }
 
 .token-gain-amount {
@@ -504,3 +517,166 @@
 .demo-gain-btn:active {
   transform: scale(0.95);
 }
+
+/* Prediction Banner */
+.basic-prediction-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 1rem;
+  margin: -0.25rem 1.25rem 0.5rem;
+  background: rgba(195, 93, 42, 0.12);
+  border: 1.5px dashed var(--cc-border-color);
+  border-radius: 14px;
+}
+
+.basic-prediction-pill {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cc-text);
+}
+
+.basic-prediction-pill strong {
+  color: var(--cc-accent);
+}
+
+.prediction-claim-pill {
+  background: var(--cc-accent) !important;
+  color: var(--cc-on-accent) !important;
+  border: none !important;
+  padding: 0.25rem 0.65rem !important;
+  border-radius: 12px !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  cursor: pointer;
+  min-height: auto !important;
+  width: auto !important;
+  box-shadow: 0 2px 5px rgba(195, 93, 42, 0.3);
+  transition: transform 0.15s ease;
+}
+
+.prediction-claim-pill:hover {
+  transform: scale(1.05);
+}
+
+.prediction-won-pill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+  padding: 0.2rem 0.5rem;
+  border-radius: 10px;
+}
+
+/* Demo Controls Group */
+.wheel-demo-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 0.25rem;
+}
+
+.dev-reset-btn {
+  color: #b91c1c !important;
+  border-color: rgba(185, 28, 28, 0.35) !important;
+}
+
+.dev-reset-btn:hover {
+  color: #991b1b !important;
+  border-color: #991b1b !important;
+  background: rgba(185, 28, 28, 0.08) !important;
+}
+
+/* "Not enough tokens!" Pop-up Modal */
+.not-enough-popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1.5rem;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.not-enough-popup-dialog {
+  width: 100%;
+  max-width: 320px;
+  background: var(--cc-base);
+  border: 4px solid var(--cc-border-color);
+  border-radius: 20px;
+  padding: 1.5rem 1.25rem 1.25rem;
+  text-align: center;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  animation: notEnoughPop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes notEnoughPop {
+  0% {
+    transform: scale(0.7) translateY(12px);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+.not-enough-popup-icon {
+  font-size: 2.75rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
+  animation: iconWiggle 0.4s ease-in-out;
+}
+
+@keyframes iconWiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-10deg); }
+  75% { transform: rotate(10deg); }
+}
+
+.not-enough-popup-title {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--cc-text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.not-enough-popup-message {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--cc-text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.not-enough-popup-btn {
+  margin-top: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--cc-accent);
+  color: var(--cc-on-accent);
+  border: none;
+  border-radius: 12px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 3px 8px rgba(195, 93, 42, 0.35);
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.not-enough-popup-btn:active {
+  transform: scale(0.97);
+}
+

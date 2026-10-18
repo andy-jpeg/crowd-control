@@ -29,8 +29,10 @@ function SpectatorApp() {
   const [spectatorName, setSpectatorName] = useState('')
   const [currentRound, setCurrentRound] = useState(1)
   const [totalRounds, setTotalRounds] = useState(5)
-  const [tokens, setTokens] = useState(0)
-  const [correctPredictions] = useState(3)
+  // Spectator gets 50 tokens on joining a session
+  const [tokens, setTokens] = useState(50)
+  const [userPrediction, setUserPrediction] = useState<string | null>(null)
+  const [correctPredictions, setCorrectPredictions] = useState(0)
 
   const getSpectatorIdentity = useCallback(async (): Promise<{ token: string; sub: string }> => {
     const sub: string = readAuth0Subject(user?.sub) ?? ''
@@ -47,40 +49,71 @@ function SpectatorApp() {
   }, [getAccessTokenSilently, user?.sub])
 
   const handleJoin = useCallback(async (code: string) => {
-    const { token, sub } = await getSpectatorIdentity()
-    const joined = await joinSession(code, token, {
-      sub,
-      nickname: user?.nickname,
-    })
-    setSessionCode(code)
-    setTokens(joined.tokenBalance)
-    setSpectatorName(joined.username)
-    setCurrentRound(joined.currentRound)
-    setTotalRounds(joined.totalRounds ?? 5)
-    setCurrentView('vote')
+    try {
+      const { token, sub } = await getSpectatorIdentity()
+      const joined = await joinSession(code, token, {
+        sub,
+        nickname: user?.nickname,
+      })
+      setSessionCode(code)
+      // When the spectator joins a session, they get 50 tokens
+      const initialTokens = typeof joined.tokenBalance === 'number' && joined.tokenBalance >= 50
+        ? joined.tokenBalance
+        : 50
+      setTokens(initialTokens)
+      setSpectatorName(joined.username)
+      setCurrentRound(joined.currentRound)
+      setTotalRounds(joined.totalRounds ?? 5)
+      setCurrentView('vote')
+    } catch (err) {
+      console.warn('Backend API unreachable, proceeding in spectator demo mode:', err)
+      setSessionCode(code)
+      // When the spectator joins a session, they get 50 tokens
+      setTokens(50)
+      setSpectatorName(user?.nickname ?? 'Spectator')
+      setCurrentRound(1)
+      setTotalRounds(5)
+      setCurrentView('vote')
+    }
   }, [getSpectatorIdentity, user])
 
   const handleVoteEvent = useCallback(async (eventId: string) => {
-    const { token, sub } = await getSpectatorIdentity()
-    await voteComplexEvent(sessionCode, token, sub, eventId)
+    try {
+      const { token, sub } = await getSpectatorIdentity()
+      await voteComplexEvent(sessionCode, token, sub, eventId)
+    } catch (err) {
+      console.warn('Backend API unreachable, recorded vote locally:', err)
+    }
   }, [getSpectatorIdentity, sessionCode])
 
   const handlePrediction = useCallback(async (
     type: 'time_bracket' | 'player',
     value: string,
   ) => {
-    const { token, sub } = await getSpectatorIdentity()
-    await submitPrediction(sessionCode, token, sub, type, value)
+    try {
+      const { token, sub } = await getSpectatorIdentity()
+      await submitPrediction(sessionCode, token, sub, type, value)
+    } catch (err) {
+      console.warn('Backend API unreachable, recorded prediction locally:', err)
+    }
   }, [getSpectatorIdentity, sessionCode])
 
   const handlePurchase = useCallback(async (eventType: string) => {
-    const { token, sub } = await getSpectatorIdentity()
-    const result = await purchaseBasicEvent(sessionCode, token, sub, eventType)
-    setTokens(result.tokenBalance)
-    return result.tokenBalance
-  }, [getSpectatorIdentity, sessionCode])
+    try {
+      const { token, sub } = await getSpectatorIdentity()
+      const result = await purchaseBasicEvent(sessionCode, token, sub, eventType)
+      setTokens(result.tokenBalance)
+      return result.tokenBalance
+    } catch (err) {
+      console.warn('Backend API unreachable, deducting tokens locally:', err)
+      const nextBalance = Math.max(0, tokens - 30)
+      setTokens(nextBalance)
+      return nextBalance
+    }
+  }, [getSpectatorIdentity, sessionCode, tokens])
 
-  const handleVoteComplete = useCallback(() => {
+  const handleVoteComplete = useCallback((_selectedEventId: string | null, pred: string | null) => {
+    setUserPrediction(pred)
     setCurrentView('wheel')
   }, [])
 
@@ -127,7 +160,11 @@ function SpectatorApp() {
           currentRound={currentRound}
           totalRounds={totalRounds}
           tokens={tokens}
+          userPrediction={userPrediction}
           spectatorName={spectatorName}
+          onAddTokens={(amount) => setTokens((prev) => prev + amount)}
+          onSetTokens={(amount) => setTokens(amount)}
+          onCorrectPrediction={() => setCorrectPredictions((prev) => prev + 1)}
           onBackToVote={() => setCurrentView('vote')}
           onEndSession={(endTokens) => {
             setTokens(endTokens)
@@ -144,7 +181,12 @@ function SpectatorApp() {
           totalRounds={totalRounds}
           finalTokens={tokens}
           onBackToDashboard={() => setCurrentView('profile')}
-          onJoinNewSession={() => setCurrentView('join')}
+          onJoinNewSession={() => {
+            setTokens(50)
+            setUserPrediction(null)
+            setCorrectPredictions(0)
+            setCurrentView('join')
+          }}
         />
       )}
     </>

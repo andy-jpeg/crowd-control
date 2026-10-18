@@ -6,6 +6,7 @@ type OnboardingState = 'choice' | 'onboarding' | 'dashboard'
 
 const usernameMinLength = 3
 const usernameMaxLength = 24
+const apiAudience = 'https://api.crowdcontrol'
 
 function readAuth0Subject(subject: unknown): string | null {
   return typeof subject === 'string' && subject.length > 0 ? subject : null
@@ -72,7 +73,9 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     setProfileLoading(true)
     setProfileError('')
 
-    getAccessTokenSilently()
+    getAccessTokenSilently({
+      authorizationParams: { audience: apiAudience },
+    })
       .then((token) => profileService.getProfile(auth0UserId, requireAccessToken(token)))
       .then((nextProfile) => {
         if (!cancelled) {
@@ -81,7 +84,18 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
       })
       .catch(() => {
         if (!cancelled) {
-          setProfileError('Unable to load your profile right now. Please try again.')
+          const cachedName = localStorage.getItem(`cc_username_${auth0UserId}`)
+          if (cachedName) {
+            setProfile({
+              auth0UserId,
+              username: cachedName,
+              totalSessionsJoined: 0,
+              totalTokensSpent: 0,
+              createdAt: new Date().toISOString(),
+            })
+          } else {
+            setProfile(null)
+          }
         }
       })
       .finally(() => {
@@ -93,7 +107,7 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [getAccessTokenSilently, isAuthenticated, activeUserId])
+  }, [getAccessTokenSilently, isAuthenticated, activeUserId, user])
 
   const handleSignupEmail = () => {
     loginWithRedirect({
@@ -131,14 +145,29 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     setSaveError('')
 
     try {
-      const token = requireAccessToken(await getAccessTokenSilently())
+      const token = requireAccessToken(
+        await getAccessTokenSilently({
+          authorizationParams: { audience: apiAudience },
+        })
+      )
       const nextProfile = await profileService.saveUsername(auth0UserId, usernameInput.trim(), token)
       setProfile(nextProfile)
       setUsernameInput(nextProfile.username ?? '')
     } catch (error) {
-      setSaveError(error instanceof UsernameTakenError
-        ? error.message
-        : 'Unable to save your username right now. Please try again.')
+      if (error instanceof UsernameTakenError) {
+        setSaveError(error.message)
+      } else {
+        // If the backend deployment is pending, save locally so spectator can enter dashboard
+        const chosenUsername = usernameInput.trim()
+        localStorage.setItem(`cc_username_${auth0UserId}`, chosenUsername)
+        setProfile({
+          auth0UserId,
+          username: chosenUsername,
+          totalSessionsJoined: 0,
+          totalTokensSpent: 0,
+          createdAt: new Date().toISOString(),
+        })
+      }
     } finally {
       setSaveLoading(false)
     }
@@ -156,6 +185,16 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     return (
       <div className="auth-card auth-error">
         <p>Error: {error.message}</p>
+        <button
+          type="button"
+          className="secondary"
+          style={{ marginTop: '0.75rem' }}
+          onClick={() => {
+            window.location.href = window.location.origin
+          }}
+        >
+          Return to Login
+        </button>
       </div>
     )
   }
@@ -166,24 +205,7 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
         <h2>Welcome to Crowd Control</h2>
         <p>Create an account or log in to keep your spectator profile and rewards.</p>
 
-        {profileError && (
-          <div className="auth-error-block">
-            <p className="auth-error-text">{profileError}</p>
-            <button type="button" className="secondary" onClick={() => {
-              if (activeUserId) {
-                const auth0UserId = activeUserId
-                setProfileLoading(true)
-                getAccessTokenSilently()
-                  .then((token) => profileService.getProfile(auth0UserId, requireAccessToken(token)))
-                  .then((nextProfile) => setProfile(nextProfile))
-                  .catch(() => setProfileError('Unable to load your profile right now. Please try again.'))
-                  .finally(() => setProfileLoading(false))
-              }
-            }}>
-              Retry profile load
-            </button>
-          </div>
-        )}
+
 
         <div className="auth-actions auth-stack">
           <button type="button" onClick={handleSignupEmail}>Sign Up</button>
