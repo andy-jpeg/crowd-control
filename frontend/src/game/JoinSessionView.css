@@ -65,6 +65,7 @@
   color: var(--cc-text);
   margin: 0 0 2.5rem;
   letter-spacing: -0.03em;
+  width: 100%; /* so the logo centers across the whole page, not just its own width */
 }
 
 .join-box {
@@ -130,7 +131,7 @@
 .join-brand-logo {
   display: block;
   filter: drop-shadow(0 4px 6px rgba(43, 22, 6, 0.3)); /* lifts the orange logo off the orange background */
-  transform: translateX(6%); /* the burst on the right makes the art look left-heavy */
   width: min(100%, 320px);
   height: auto;
+  margin: 0 auto;
 }
