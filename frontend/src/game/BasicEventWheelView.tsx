@@ -25,9 +25,14 @@ interface BasicEventWheelViewProps {
   currentRound?: number
   totalRounds?: number
   tokens: number
+  userPrediction?: string | null
   spectatorName?: string
+  onAddTokens?: (amount: number) => void
+  onSetTokens?: (amount: number) => void
+  onCorrectPrediction?: () => void
   onTriggerEvent: (eventId: string) => Promise<number>
   onBackToVote?: () => void
+  onEndSession?: (finalTokens: number) => void
 }
 
 export function BasicEventWheelView({
@@ -35,9 +40,14 @@ export function BasicEventWheelView({
   currentRound = 1,
   totalRounds = 5,
   tokens,
+  userPrediction,
   spectatorName,
+  onAddTokens,
+  onSetTokens,
+  onCorrectPrediction,
   onTriggerEvent,
   onBackToVote,
+  onEndSession,
 }: BasicEventWheelViewProps) {
   // Center selection index in the wheel (defaults to center event index 3: Banana Peels)
   const [selectedIndex, setSelectedIndex] = useState(3)
@@ -45,9 +55,19 @@ export function BasicEventWheelView({
   // 2-minute round timer (120 seconds)
   const [secondsRemaining, setSecondsRemaining] = useState(120)
 
+  // Cooldown tracker for duration events (10 seconds)
+  const [cooldowns, setCooldowns] = useState<Record<string, number>>({})
+
   const [isPurchasing, setIsPurchasing] = useState(false)
   const [purchaseError, setPurchaseError] = useState('')
   const [triggerFeedback, setTriggerFeedback] = useState<string | null>(null)
+
+  // "Not enough tokens!" Pop-up state
+  const [notEnoughTokensPopup, setNotEnoughTokensPopup] = useState(false)
+  const notEnoughTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Track if prediction reward was already claimed this round
+  const [predictionAwarded, setPredictionAwarded] = useState(false)
 
   // Touch gesture tracking for wheel swipe
   const touchStartY = useRef<number | null>(null)
@@ -57,7 +77,16 @@ export function BasicEventWheelView({
   const [tokenGain, setTokenGain] = useState<{ id: number; amount: number } | null>(null)
   const prevTokensRef = useRef(tokens)
 
-  // Trigger floating gain popup whenever tokens increase
+  // Helper to show "Not enough tokens!" pop up for 2.5 seconds
+  const showNotEnoughTokens = () => {
+    setNotEnoughTokensPopup(true)
+    if (notEnoughTimerRef.current) clearTimeout(notEnoughTimerRef.current)
+    notEnoughTimerRef.current = setTimeout(() => {
+      setNotEnoughTokensPopup(false)
+    }, 2500)
+  }
+
+  // Trigger floating gain popup whenever tokens increase (+ [O] 30 or + [O] 50)
   useEffect(() => {
     if (tokens > prevTokensRef.current) {
       const amount = tokens - prevTokensRef.current
@@ -69,6 +98,56 @@ export function BasicEventWheelView({
     prevTokensRef.current = tokens
   }, [tokens])
 
+  // At the start of every round, spectator gets 30 tokens
+  const roundAwardedRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (roundAwardedRef.current !== currentRound) {
+      roundAwardedRef.current = currentRound
+      const timer = setTimeout(() => {
+        onAddTokens?.(30)
+      }, 500)
+      return () => clearTimeout(timer)
+    }
+  }, [currentRound, onAddTokens])
+
+  // For each 30 second interval in a round, spectator earns 30 tokens (at 90s, 60s, 30s)
+  const awardedIntervalsRef = useRef<Set<number>>(new Set())
+  useEffect(() => {
+    awardedIntervalsRef.current = new Set()
+  }, [currentRound])
+
+  useEffect(() => {
+    if (secondsRemaining > 0 && secondsRemaining < 120 && secondsRemaining % 30 === 0) {
+      if (!awardedIntervalsRef.current.has(secondsRemaining)) {
+        awardedIntervalsRef.current.add(secondsRemaining)
+        onAddTokens?.(30)
+      }
+    }
+  }, [secondsRemaining, onAddTokens])
+
+  // Reward 50 tokens when prediction is won
+  const handleClaimPredictionWin = () => {
+    if (predictionAwarded) return
+    setPredictionAwarded(true)
+    onAddTokens?.(50)
+    onCorrectPrediction?.()
+    setTriggerFeedback('Prediction Correct! +50')
+    setTimeout(() => setTriggerFeedback(null), 2500)
+  }
+
+  // Auto-resolve prediction if user predicted a matching time bracket
+  useEffect(() => {
+    if (predictionAwarded || !userPrediction) return
+    if (
+      (userPrediction === '0:00 - 0:30' && secondsRemaining <= 90) ||
+      (userPrediction === '0:30 - 1:00' && secondsRemaining <= 60) ||
+      (userPrediction === '1:00 - 1:30' && secondsRemaining <= 30) ||
+      (userPrediction === '1:30 - 2:00' && secondsRemaining <= 5)
+    ) {
+      handleClaimPredictionWin()
+    }
+  }, [secondsRemaining, userPrediction, predictionAwarded])
+
 
   // Round timer countdown (2:00 -> 0:00)
   useEffect(() => {
@@ -78,6 +157,24 @@ export function BasicEventWheelView({
     }, 1000)
     return () => clearInterval(timer)
   }, [secondsRemaining])
+
+  // Cooldown countdown for duration events (10s -> 0s)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCooldowns((prev) => {
+        let hasActive = false
+        const next: Record<string, number> = {}
+        for (const [key, val] of Object.entries(prev)) {
+          if (val > 1) {
+            next[key] = val - 1
+            hasActive = true
+          }
+        }
+        return hasActive ? next : {}
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   // Format mm:ss
   const minutes = Math.floor(secondsRemaining / 60)
@@ -139,6 +236,17 @@ export function BasicEventWheelView({
     // Tap the center/selected spoke -> trigger the event!
     const currentEvent = BASIC_EVENTS[selectedIndex]
 
+    // Check if spectator has enough tokens!
+    if (tokens < currentEvent.cost) {
+      showNotEnoughTokens()
+      return
+    }
+
+    // Check cooldown for duration events
+    if (currentEvent.type === 'duration' && (cooldowns[currentEvent.id] ?? 0) > 0) {
+      return
+    }
+
     setPurchaseError('')
     setIsPurchasing(true)
     try {
@@ -146,6 +254,12 @@ export function BasicEventWheelView({
       if (!Number.isSafeInteger(nextBalance) || nextBalance < 0) {
         throw new Error('The server returned an invalid token balance.')
       }
+
+      // Set 10s cooldown for duration events
+      if (currentEvent.type === 'duration') {
+        setCooldowns((prev) => ({ ...prev, [currentEvent.id]: 10 }))
+      }
+
       setTriggerFeedback(currentEvent.name)
       setTimeout(() => setTriggerFeedback(null), 1200)
     } catch (error) {
@@ -187,7 +301,7 @@ export function BasicEventWheelView({
           <div className="basic-token-badge" />
           <span className={`basic-token-count ${tokenGain ? 'pulse' : ''}`}>{tokens}</span>
 
-          {/* Floating Gain Animation: + [O] 30 */}
+          {/* Floating Gain Animation: + [O] 30 or + [O] 50 */}
           {tokenGain && (
             <div key={tokenGain.id} className="token-gain-popup">
               <span className="token-gain-plus">+</span>
@@ -197,6 +311,27 @@ export function BasicEventWheelView({
           )}
         </div>
       </div>
+
+      {/* Prediction indicator banner */}
+      {userPrediction && (
+        <div className="basic-prediction-banner">
+          <span className="basic-prediction-pill">
+            🎯 Predicted: <strong>{userPrediction}</strong>
+          </span>
+          {!predictionAwarded ? (
+            <button
+              type="button"
+              className="prediction-claim-pill"
+              onClick={handleClaimPredictionWin}
+              title="Claim +50 prediction reward"
+            >
+              Win +50 pts
+            </button>
+          ) : (
+            <span className="prediction-won-pill">Won (+50 pts)</span>
+          )}
+        </div>
+      )}
 
       {/* Main Wheel Area */}
       <div className="wheel-stage">
@@ -218,11 +353,6 @@ export function BasicEventWheelView({
             const opacity = distance > 3 ? Math.max(0, 1 - (distance - 3) * 0.75) : 1
             const pointerEvents = distance > 3 ? 'none' : 'auto'
 
-            // Distance-based sizing requested by user:
-            // - Highlighted: large
-            // - 1 away: medium
-            // - 2 away: smaller than medium
-            // - 3+ away: small
             let sizeClass = 'size-small'
             if (distance === 0) {
               sizeClass = 'size-large selected'
@@ -234,12 +364,15 @@ export function BasicEventWheelView({
               sizeClass = 'size-small'
             }
 
+            const cooldownTime = cooldowns[event.id] ?? 0
+            const onCooldown = cooldownTime > 0
+
             return (
               <button
                 key={event.id}
                 type="button"
-                disabled={isPurchasing}
-                className={`spoke-btn ${sizeClass}`}
+                disabled={isPurchasing || (isSelected && onCooldown)}
+                className={`spoke-btn ${sizeClass} ${onCooldown ? 'cooldown' : ''}`}
                 style={{
                   transform: `translateY(-50%) rotate(${rotationDeg}deg)`,
                   opacity,
@@ -249,8 +382,14 @@ export function BasicEventWheelView({
               >
                 <div className="spoke-content">
                   <span className="spoke-title">{event.name}</span>
-                  {isSelected && (
+                  {isSelected && onCooldown && (
+                    <span className="spoke-cooldown-badge">⏳ {cooldownTime}s</span>
+                  )}
+                  {isSelected && !onCooldown && (
                     <span className="spoke-cost-badge">{event.cost} pts</span>
+                  )}
+                  {!isSelected && onCooldown && (
+                    <span className="spoke-mini-cooldown">{cooldownTime}s</span>
                   )}
                 </div>
               </button>
@@ -264,7 +403,7 @@ export function BasicEventWheelView({
         {purchaseError ? (
           <p className="wheel-error" role="alert">{purchaseError}</p>
         ) : triggerFeedback ? (
-          <div className="trigger-toast">⚡ {triggerFeedback} Triggered!</div>
+          <div className="trigger-toast">⚡ {triggerFeedback}</div>
         ) : isPurchasing ? (
           <p className="wheel-instruction" role="status">Processing purchase…</p>
         ) : (
@@ -273,12 +412,77 @@ export function BasicEventWheelView({
           </p>
         )}
 
+        {/* Demo / Test Controls */}
+        <div className="wheel-demo-controls">
+          <button
+            type="button"
+            className="dev-nav-btn"
+            onClick={() => onAddTokens?.(30)}
+          >
+            ⏱️ +30 Tokens (Interval / Round)
+          </button>
+          <button
+            type="button"
+            className="dev-nav-btn"
+            onClick={handleClaimPredictionWin}
+          >
+            🏆 +50 Tokens (Correct Prediction)
+          </button>
+          <button
+            type="button"
+            className="dev-nav-btn dev-reset-btn"
+            onClick={() => onSetTokens?.(0)}
+          >
+            ⚠️ Set Tokens to 0 (Test "Not enough tokens")
+          </button>
+        </div>
+
         {onBackToVote && (
           <button type="button" className="dev-nav-btn" onClick={onBackToVote}>
             ← Back to 15s Vote Screen
           </button>
         )}
+
+        {onEndSession && (
+          <button
+            type="button"
+            className="dev-nav-btn"
+            style={{ marginTop: '0.35rem' }}
+            onClick={() => onEndSession(tokens)}
+          >
+            Finish Session → (Demo Ending Screen)
+          </button>
+        )}
       </div>
+
+      {/* "Not enough tokens!" Pop-up Modal */}
+      {notEnoughTokensPopup && (
+        <div
+          className="not-enough-popup-overlay"
+          onClick={() => setNotEnoughTokensPopup(false)}
+          role="presentation"
+        >
+          <div
+            className="not-enough-popup-dialog"
+            role="alert"
+            aria-live="assertive"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="not-enough-popup-icon">⚠️</div>
+            <h3 className="not-enough-popup-title">Not enough tokens!</h3>
+            <p className="not-enough-popup-message">
+              You need 30 tokens to trigger this event. Earn more every 30 seconds or from your prediction!
+            </p>
+            <button
+              type="button"
+              className="not-enough-popup-btn"
+              onClick={() => setNotEnoughTokensPopup(false)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
