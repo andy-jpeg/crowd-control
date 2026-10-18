@@ -48,9 +48,9 @@ export function SessionEndView({
           <div className="end-stat-divider" />
 
           <div className="end-stat-block">
-            <span className="end-stat-label">Final Tokens</span>
-            <div className="basic-token-group end-token-display">
-              <div className="basic-token-badge" />
+            <span className="end-stat-label">Final Tokens Remaining</span>
+            <div className="end-token-display">
+              <div className="basic-token-badge end-token-badge" />
               <span className="basic-token-count end-token-count">{finalTokens}</span>
             </div>
           </div>
