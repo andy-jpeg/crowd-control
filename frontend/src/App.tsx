@@ -3,12 +3,14 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import './App.css'
 import { AuthPanel } from './auth/AuthPanel'
 import {
+  getSession,
   joinSession,
   purchaseBasicEvent,
   submitPrediction,
   voteComplexEvent,
 } from './api/client'
 import { JoinSessionView } from './game/JoinSessionView'
+import { WaitingForHostView } from './game/WaitingForHostView'
 import { ComplexVoteView } from './game/ComplexVoteView'
 import { BasicEventWheelView } from './game/BasicEventWheelView'
 import { SessionEndView } from './game/SessionEndView'
@@ -24,7 +26,7 @@ function readAuth0Subject(subject: unknown): string | null {
 
 function SpectatorApp() {
   const { user, getAccessTokenSilently } = useAuth0()
-  const [currentView, setCurrentView] = useState<'profile' | 'join' | 'vote' | 'wheel' | 'end'>('profile')
+  const [currentView, setCurrentView] = useState<'profile' | 'join' | 'waiting' | 'vote' | 'wheel' | 'end'>('profile')
   const [sessionCode, setSessionCode] = useState('')
   const [spectatorName, setSpectatorName] = useState('')
   const [currentRound, setCurrentRound] = useState(1)
@@ -70,7 +72,7 @@ function SpectatorApp() {
       setSpectatorName(joined.username || effectiveName)
       setCurrentRound(joined.currentRound)
       setTotalRounds(joined.totalRounds ?? 5)
-      setCurrentView('vote')
+      setCurrentView('waiting')
     } catch (err) {
       console.warn('Backend API unreachable, proceeding in spectator demo mode:', err)
       setSessionCode(code)
@@ -79,9 +81,19 @@ function SpectatorApp() {
       setSpectatorName(effectiveName)
       setCurrentRound(1)
       setTotalRounds(5)
-      setCurrentView('vote')
+      setCurrentView('waiting')
     }
   }, [getSpectatorIdentity, user])
+
+  const handleCheckSessionStatus = useCallback(async (): Promise<string | null> => {
+    try {
+      const { token } = await getSpectatorIdentity()
+      const session = await getSession(sessionCode, token)
+      return session.status
+    } catch {
+      return null
+    }
+  }, [getSpectatorIdentity, sessionCode])
 
   const handleVoteEvent = useCallback(async (eventId: string) => {
     try {
@@ -145,6 +157,17 @@ function SpectatorApp() {
         <JoinSessionView
           onJoin={handleJoin}
           onBack={() => setCurrentView('profile')}
+        />
+      )}
+
+      {currentView === 'waiting' && (
+        <WaitingForHostView
+          sessionCode={sessionCode}
+          spectatorName={spectatorName}
+          tokens={tokens}
+          onHostStart={() => setCurrentView('vote')}
+          onLeaveSession={() => setCurrentView('join')}
+          checkSessionStatus={handleCheckSessionStatus}
         />
       )}
 
