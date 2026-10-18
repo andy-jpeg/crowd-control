@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './ComplexVoteView.css'
+import logo from '../assets/CrowdControl.png'
 
 export interface PlayerInfo {
   id: string
@@ -54,6 +55,7 @@ export function ComplexVoteView({
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [prediction, setPrediction] = useState<string>('')
   const [isLocked, setIsLocked] = useState(false)
+  const [exitHovered, setExitHovered] = useState(false)
   const [pendingWrites, setPendingWrites] = useState(0)
   const [actionError, setActionError] = useState('')
   const completedRef = useRef(false)
@@ -116,14 +118,24 @@ export function ComplexVoteView({
   return (
     <div className="vote-container">
       {onLeaveSession && (
-        <button type="button" className="vote-back-link" onClick={onLeaveSession}>
-          ← Exit Session ({sessionCode})
+        <button
+          type="button"
+          className="vote-back-link"
+          onMouseEnter={() => setExitHovered(true)}
+          onMouseLeave={() => setExitHovered(false)}
+          onClick={onLeaveSession}
+        >
+          <span className={`vote-back-text ${exitHovered ? 'hovered' : ''}`}>
+            ← Exit Session ({sessionCode})
+          </span>
         </button>
       )}
 
       <header className="vote-header">
         <div>
-          <h1 className="vote-brand-title">Crowd Control</h1>
+          <h1 className="vote-brand-title">
+            <img className="vote-brand-logo" src={logo} alt="Crowd Control" />
+          </h1>
           <span className="vote-round-badge">Round {currentRound} of {totalRounds}</span>
         </div>
         <div className="vote-status-bar">
@@ -210,7 +222,7 @@ export function ComplexVoteView({
           )}
 
           <p className="prediction-reward-note">
-            🎯 Correct guess awards <strong>+50 tokens</strong> at round end!
+            Correct guess awards <strong>+50 tokens</strong> at round end!
           </p>
           {actionError && <p className="vote-api-error" role="alert">{actionError}</p>}
           {pendingWrites > 0 && <p className="vote-api-status" role="status">Saving your choice…</p>}

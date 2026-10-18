@@ -220,7 +220,6 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
             {saveLoading ? 'Saving…' : 'Save username'}
           </button>
         </div>
-
       </div>
     )
   }

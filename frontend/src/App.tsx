@@ -135,6 +135,28 @@ function SpectatorApp() {
 }
 
 function App() {
+  if (!window.isSecureContext) {
+    return (
+      <main className="app-shell">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">Roblox Party Game</p>
+            <h1>Spectator Hub</h1>
+          </div>
+        </header>
+
+        <section className="panel">
+          <div className="auth-card auth-error">
+            <h2>Open this page over HTTPS</h2>
+            <p>
+              Login only works on https:// or localhost. You opened {window.location.origin}, so use the HTTPS tunnel link (or the hosted site) instead.
+            </p>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   if (!domain || !clientId) {
     return (
       <main className="app-shell">

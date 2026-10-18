@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './BasicEventWheelView.css'
+import logo from '../assets/CrowdControl.png'
 
 export interface BasicEventItem {
   id: string
@@ -51,6 +52,23 @@ export function BasicEventWheelView({
   // Touch gesture tracking for wheel swipe
   const touchStartY = useRef<number | null>(null)
   const isDragging = useRef(false)
+
+  // Floating token gain animation state: { id, amount }
+  const [tokenGain, setTokenGain] = useState<{ id: number; amount: number } | null>(null)
+  const prevTokensRef = useRef(tokens)
+
+  // Trigger floating gain popup whenever tokens increase
+  useEffect(() => {
+    if (tokens > prevTokensRef.current) {
+      const amount = tokens - prevTokensRef.current
+      setTokenGain({ id: Date.now(), amount })
+      const timeout = setTimeout(() => setTokenGain(null), 1800)
+      prevTokensRef.current = tokens
+      return () => clearTimeout(timeout)
+    }
+    prevTokensRef.current = tokens
+  }, [tokens])
+
 
   // Round timer countdown (2:00 -> 0:00)
   useEffect(() => {
@@ -150,7 +168,8 @@ export function BasicEventWheelView({
       {/* Top Header Bar */}
       <header className="basic-topbar">
         <span className="basic-app-title">
-          Crowd Control {sessionCode ? `• ${sessionCode}` : ''}
+          <img className="basic-app-logo" src={logo} alt="Crowd Control" />
+          {sessionCode ? ` • ${sessionCode}` : ''}
           {spectatorName ? ` • @${spectatorName}` : ''}
         </span>
       </header>
@@ -166,7 +185,16 @@ export function BasicEventWheelView({
 
         <div className="basic-token-group">
           <div className="basic-token-badge" />
-          <span className="basic-token-count">{tokens}</span>
+          <span className={`basic-token-count ${tokenGain ? 'pulse' : ''}`}>{tokens}</span>
+
+          {/* Floating Gain Animation: + [O] 30 */}
+          {tokenGain && (
+            <div key={tokenGain.id} className="token-gain-popup">
+              <span className="token-gain-plus">+</span>
+              <div className="token-gain-mini-badge" />
+              <span className="token-gain-amount">{tokenGain.amount}</span>
+            </div>
+          )}
         </div>
       </div>
 
