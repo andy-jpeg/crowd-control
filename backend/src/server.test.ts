@@ -998,6 +998,23 @@ test("tallies complex-event votes and delivers winning event to Roblox poll", as
       });
       assert.equal(vote3.status, 200);
 
+      // Votes alone don't reach the game: Roblox picks up every new command right away, so queueing per vote would run several events
+      const earlyPoll = await fetch(`${baseUrl}/sessions/KWPZ/events?since=0`, {
+        headers: { "x-session-token": "00000000-0000-4000-8000-000000000001" }
+      });
+      const earlyData = await earlyPoll.json() as { events: unknown[] };
+      assert.equal(earlyData.events.length, 0);
+
+      // The round goes active (reported twice, like a retry): the winner is queued exactly once
+      for (let report = 0; report < 2; report++) {
+        const roundRes = await fetch(`${baseUrl}/sessions/KWPZ/round`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-session-token": "00000000-0000-4000-8000-000000000001" },
+          body: JSON.stringify({ round: 1, totalRounds: 5, state: "active", endsAt: Date.now() / 1000 + 120 })
+        });
+        assert.equal(roundRes.status, 200);
+      }
+
       // Roblox polls events
       const pollRes = await fetch(`${baseUrl}/sessions/KWPZ/events?since=0`, {
         headers: { "x-session-token": "00000000-0000-4000-8000-000000000001" }

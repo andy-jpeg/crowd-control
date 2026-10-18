@@ -308,6 +308,36 @@ async function grantWatchRewards(client: PoolClient, session: WatchedSession, me
   );
 }
 
+async function queueWinningComplexEvent(client: PoolClient, sessionId: string, round: number) {
+  // the game picks up every new command right away, so a round's winner must only ever be queued once
+  const alreadyQueued = await client.query(
+    `SELECT 1 FROM event_commands
+     WHERE session_id = $1
+       AND params->>'round' = $2::text
+       AND event_type = ANY($3::text[])
+     LIMIT 1`,
+    [sessionId, round.toString(), Array.from(complexEventIds)]
+  );
+  if (alreadyQueued.rows.length) return;
+
+  const winningVote = await client.query<{ event_id: string }>(
+    `SELECT event_id
+     FROM spectator_votes
+     WHERE session_id = $1 AND round_number = $2
+     GROUP BY event_id
+     ORDER BY COUNT(*) DESC, MIN(voted_at) ASC
+     LIMIT 1`,
+    [sessionId, round]
+  );
+  if (!winningVote.rows[0]) return;
+
+  await client.query(
+    `INSERT INTO event_commands (session_id, event_type, triggered_by, params, status)
+     VALUES ($1, $2, 'Spectators', jsonb_build_object('round', $3::int), 'pending')`,
+    [sessionId, winningVote.rows[0].event_id, round]
+  );
+}
+
 export function createApp(
   pool: Pool,
   sessionAuth: RequestHandler = requireRobloxAuth,
@@ -590,32 +620,8 @@ export function createApp(
         );
       }
 
-      if (body.state === "active") {
-        const winningVote = await client.query<{ event_id: string }>(
-          `SELECT event_id
-           FROM spectator_votes
-           WHERE session_id = $1 AND round_number = $2
-           GROUP BY event_id
-           ORDER BY COUNT(*) DESC, MIN(voted_at) ASC
-           LIMIT 1`,
-          [session.id, body.round]
-        );
-        if (winningVote.rows[0]) {
-          const alreadyQueued = await client.query(
-            `SELECT id FROM event_commands
-             WHERE session_id = $1
-               AND params->>'round' = $2::text
-               AND event_type = ANY($3::text[])`,
-            [session.id, body.round.toString(), Array.from(complexEventIds)]
-          );
-          if (!alreadyQueued.rows.length) {
-            await client.query(
-              `INSERT INTO event_commands (session_id, event_type, triggered_by, params, status)
-               VALUES ($1, $2, 'Spectators', jsonb_build_object('round', $3::int), 'pending')`,
-              [session.id, winningVote.rows[0].event_id, body.round]
-            );
-          }
-        }
+      if (body.state === "active" && Number(body.round) > 0) {
+        await queueWinningComplexEvent(client, session.id, Number(body.round));
       }
       await client.query("COMMIT");
       res.json({ ok: true, round: body.round, totalRounds: body.totalRounds });
@@ -1023,34 +1029,15 @@ export function createApp(
         [session.id, roundNumber, spectatorId, body.eventId]
       );
 
-      // Find the complex event with the most votes for this round
-      const winningVote = await client.query<{ event_id: string }>(
-        `SELECT event_id
-         FROM spectator_votes
-         WHERE session_id = $1 AND round_number = $2
-         GROUP BY event_id
-         ORDER BY COUNT(*) DESC, MIN(voted_at) ASC
-         LIMIT 1`,
-        [session.id, roundNumber]
+      // The winner is queued once, when the game reports this round going active (POST /round).
+      // A vote that arrives after that only queues the winner if nothing was queued yet (nobody had voted in time)
+      const state = await client.query<{ round_state: string | null }>(
+        "SELECT round_state FROM sessions WHERE id = $1",
+        [session.id]
       );
-
-      const winningEventId = winningVote.rows[0]?.event_id ?? body.eventId;
-
-      // Remove any previously pending complex vote command for this round in this session
-      await client.query(
-        `DELETE FROM event_commands 
-         WHERE session_id = $1 AND status = 'pending' 
-           AND params->>'round' = $2::text
-           AND event_type = ANY($3::text[])`,
-        [session.id, roundNumber.toString(), Array.from(complexEventIds)]
-      );
-
-      // Queue the single winning complex event into event_commands for Roblox to poll and execute!
-      await client.query(
-        `INSERT INTO event_commands (session_id, event_type, triggered_by, params, status)
-         VALUES ($1, $2, 'Spectators', jsonb_build_object('round', $3::int), 'pending')`,
-        [session.id, winningEventId, roundNumber]
-      );
+      if (state.rows[0]?.round_state === "active") {
+        await queueWinningComplexEvent(client, session.id, roundNumber);
+      }
 
       await client.query("COMMIT");
       res.json({ ok: true, eventId: body.eventId });

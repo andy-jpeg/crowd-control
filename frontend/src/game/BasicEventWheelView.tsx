@@ -163,8 +163,10 @@ export function BasicEventWheelView({
     return () => clearInterval(timer)
   }, [isLive, roundState, roundEndsAt])
 
-  // When round timer runs down to 0:00, advance to next round's complex vote or finish session
+  // When round timer runs down to 0:00, advance to next round's complex vote or finish session.
+  // While following the game (isLive), App moves on when the backend reports the next round instead
   useEffect(() => {
+    if (isLive) return
     if (secondsRemaining <= 0) {
       if (currentRound < totalRounds && onNextRound) {
         const timeout = setTimeout(() => {
@@ -178,7 +180,7 @@ export function BasicEventWheelView({
         return () => clearTimeout(timeout)
       }
     }
-  }, [secondsRemaining, currentRound, totalRounds, onNextRound, onEndSession, tokens])
+  }, [isLive, secondsRemaining, currentRound, totalRounds, onNextRound, onEndSession, tokens])
 
   // Cooldown countdown for duration events (10s -> 0s)
   useEffect(() => {

@@ -24,6 +24,7 @@ local TSUNAMI_SAFE_MARGIN = 2
 local BANANA_EDGE_PADDING, BANANA_DESPAWN_DELAY = 2, 0.5
 local SPRING_SIZE, SPRING_LAUNCH_SPEED, SPRING_PUSH_SPEED, SPRING_COOLDOWN = 4, 90, 15, 1.5
 local SPRING_HEIGHT, SPRING_COIL_TURNS, SPRING_COIL_SEGMENTS = 1.8, 3, 12
+local SPRING_SOUND_ID, SPRING_SOUND_VOLUME = "rbxassetid://109397400639910", 0.8 -- Classic Roblox Jump
 local SLIME_WALKSPEED, SLIME_CHECK_HEIGHT, SLIME_CHECK_INTERVAL = 6, 4, 0.1
 local TRAP_EDGE_PADDING, TRAP_LIFETIME = 2, 10
 local SHRINK_WARNING_TIME, SHRINK_TIME, SHRINK_GROW_TIME, SHRINK_SCALE = 2, 5, 3, 0.6
@@ -475,6 +476,11 @@ local function placeSpring()
 	local Pad = addPart("Pad", Enum.PartType.Cylinder, Vector3.new(0.4, SPRING_SIZE * 0.9, SPRING_SIZE * 0.9), Color3.fromRGB(248, 167, 34), Enum.Material.SmoothPlastic)
 	Pad.CanTouch = true
 
+	local JumpSound = Instance.new("Sound")
+	JumpSound.Name = "JumpSound"
+	JumpSound.SoundId, JumpSound.Volume = SPRING_SOUND_ID, SPRING_SOUND_VOLUME
+	JumpSound.Parent = Pad -- plays from the spring, so it's louder the closer you are
+
 	local function setCompression(scale)
 		for _, coil in coils do
 			local point = position + Vector3.new(math.cos(coil.angle) * coilRadius, 0.4 + coil.height * scale, math.sin(coil.angle) * coilRadius)
@@ -514,6 +520,8 @@ local function placeSpring()
 		lastLaunch[character] = os.clock()
 
 		launchCharacter(rootPart)
+		JumpSound.TimePosition = 0
+		JumpSound:Play()
 
 		local squashTween = TweenService:Create(Compression, squashInfo, {Value = 0.35})
 		squashTween:Play()

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import './App.css'
 import { AuthPanel } from './auth/AuthPanel'
@@ -84,12 +84,15 @@ function SpectatorApp() {
       setTotalRounds(joined.totalRounds ?? 5)
       setRoundState('lobby')
       setRoundEndsAt(null)
+      serverRoundRef.current = null
       setCurrentView('waiting') // the waiting page moves on by itself once the host presses Start
     } catch (err) {
       console.warn('Join failed:', err)
       throw err // the join screen shows the message, so a wrong code or blocked request can't look like it worked
     }
   }, [getSpectatorIdentity, user])
+
+  const serverRoundRef = useRef<number | null>(null) // the last round the backend reported, to notice a new one
 
   useEffect(() => {
     if (!sessionCode || (currentView !== 'waiting' && currentView !== 'vote' && currentView !== 'wheel')) return
@@ -101,13 +104,20 @@ function SpectatorApp() {
         const info = await getSession(sessionCode, token)
         if (cancelled) return
         const clockOffset = Date.now() - info.serverTime * 1000
+        const previousRound = serverRoundRef.current
+        serverRoundRef.current = info.currentRound
         setCurrentRound(info.currentRound)
         setTotalRounds(info.totalRounds)
         setRoundState(info.roundState) // an older backend doesn't send it, which puts the wheel back on its own timer
         setRoundEndsAt(info.endsAt === null ? null : info.endsAt * 1000 + clockOffset)
         if (typeof info.tokenBalance === 'number') setTokens(info.tokenBalance) // rewards are paid by the backend, so its balance is the real one
         if (typeof info.correctPredictions === 'number') setCorrectPredictions(info.correctPredictions) // an older backend leaves both out
-        if (currentView === 'waiting' && (info.roundState === undefined || STARTED_STATES.has(info.roundState))) setCurrentView('vote') // the host pressed Start (or the backend can't tell us)
+        if (currentView === 'waiting' && (info.roundState === undefined || STARTED_STATES.has(info.roundState))) {
+          setCurrentView('vote') // the host pressed Start (or the backend can't tell us)
+        } else if (currentView === 'wheel' && previousRound !== null && info.currentRound > previousRound && info.currentRound <= info.totalRounds) {
+          setUserPrediction(null)
+          setCurrentView('vote') // a new round: vote on its big event
+        }
       } catch (err) {
         if (cancelled) return
         if (err instanceof ApiError && err.status === 404) {
@@ -181,37 +191,6 @@ function SpectatorApp() {
     }
   }, [currentRound, totalRounds])
 
-  useEffect(() => {
-    if (!sessionCode || (currentView !== 'vote' && currentView !== 'wheel')) return
-    let active = true
-
-    const pollSession = async () => {
-      try {
-        const { token } = await getSpectatorIdentity()
-        const session = await getSession(sessionCode, token)
-        if (!active) return
-
-        if (session.status === 'ended') {
-          setCurrentView('end')
-          return
-        }
-
-        if (typeof session.currentRound === 'number' && session.currentRound > currentRound) {
-          setCurrentRound(session.currentRound)
-          setUserPrediction(null)
-          setCurrentView('vote')
-        }
-      } catch {
-        // Silently ignore polling network failures
-      }
-    }
-
-    const interval = setInterval(pollSession, 2500)
-    return () => {
-      active = false
-      clearInterval(interval)
-    }
-  }, [sessionCode, currentView, currentRound, getSpectatorIdentity])
 
   return (
     <>
