@@ -182,7 +182,7 @@
   min-height: 380px;
 }
 
-/* The circular rim arc on the left - enlarged and completely empty */
+/* The circular rim arc on the left */
 .wheel-arc {
   position: absolute;
   left: -270px;
@@ -195,6 +195,59 @@
   z-index: 2;
   background: transparent;
   pointer-events: none;
+}
+
+/* Circular Showcase in the middle of the wheel arc on the left */
+.wheel-center-display {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--cc-surface);
+  border: var(--cc-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18), inset 0 2px 4px rgba(255, 255, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12;
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease, filter 0.2s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wheel-center-display:hover,
+.wheel-center-display:focus-visible {
+  transform: translateY(-50%) scale(1.06);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.24);
+}
+
+.wheel-center-display:active {
+  transform: translateY(-50%) scale(0.94);
+}
+
+.wheel-center-event-icon {
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.22));
+  animation: popInIcon 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  pointer-events: none;
+}
+
+@keyframes popInIcon {
+  0% {
+    transform: scale(0.6) rotate(-10deg);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
 }
 
 /* Container anchoring the radial spokes */
@@ -357,6 +410,43 @@
 .spoke-btn.size-small .spoke-title {
   font-size: 0.72rem;
   font-weight: 600;
+}
+
+.spoke-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spoke-mini-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
+}
+
+.spoke-btn.size-large .spoke-mini-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.spoke-btn.size-medium .spoke-mini-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.spoke-btn.size-smaller-medium .spoke-mini-icon {
+  width: 19px;
+  height: 19px;
+}
+
+.spoke-btn.size-small .spoke-mini-icon {
+  width: 17px;
+  height: 17px;
 }
 
 .spoke-cost-badge {

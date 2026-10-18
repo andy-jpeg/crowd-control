@@ -2,6 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import './BasicEventWheelView.css'
 import logo from '../assets/CrowdControl.png'
 import tokenIcon from '../assets/token.png'
+import bombIcon from '../assets/event-bombs.png'
+import springIcon from '../assets/event-spring_traps.png'
+import slimeIcon from '../assets/event-slime_puddles.png'
+import bananaIcon from '../assets/event-banana_peels.png'
+import invertIcon from '../assets/event-inverted_controls.png'
+import nogravIcon from '../assets/event-low_gravity.png'
+import squidIcon from '../assets/event-ink_screen.png'
+
+const EVENT_ICONS: Record<string, string> = {
+  bombs: bombIcon,
+  spring_traps: springIcon,
+  slime_puddles: slimeIcon,
+  banana_peels: bananaIcon,
+  inverted_controls: invertIcon,
+  low_gravity: nogravIcon,
+  ink_screen: squidIcon,
+}
 
 export interface BasicEventItem {
   id: string
@@ -60,6 +77,7 @@ export function BasicEventWheelView({
 
   // Center selection index in the wheel (defaults to center event index 3: Banana Peels)
   const [selectedIndex, setSelectedIndex] = useState(3)
+  const currentEvent = BASIC_EVENTS[selectedIndex]
 
   // 2-minute round timer (120 seconds)
   const [secondsRemaining, setSecondsRemaining] = useState(120)
@@ -368,7 +386,31 @@ export function BasicEventWheelView({
 
       {/* Main Wheel Area */}
       <div className={`wheel-stage ${isRoundActive ? '' : 'wheel-waiting'}`}>
-        {/* The Circular Rim (Arc) - larger and empty */}
+        {/* Highlighted Event Showcase in the middle of the circle */}
+        <div
+          className="wheel-center-display"
+          onClick={() => handleSpokeClick(selectedIndex)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleSpokeClick(selectedIndex)
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          title={`Trigger ${currentEvent.name}`}
+        >
+          {EVENT_ICONS[currentEvent.id] && (
+            <img
+              key={currentEvent.id}
+              src={EVENT_ICONS[currentEvent.id]}
+              alt={currentEvent.name}
+              className="wheel-center-event-icon"
+            />
+          )}
+        </div>
+
+        {/* The Circular Rim (Arc) */}
         <div className="wheel-arc" />
 
         {/* The Radial Spoke Buttons - Selected value always remains locked in the middle (0 deg) */}
@@ -414,7 +456,16 @@ export function BasicEventWheelView({
                 onClick={() => handleSpokeClick(index)}
               >
                 <div className="spoke-content">
-                  <span className="spoke-title">{event.name}</span>
+                  <div className="spoke-title-group">
+                    {EVENT_ICONS[event.id] && (
+                      <img
+                        src={EVENT_ICONS[event.id]}
+                        alt=""
+                        className="spoke-mini-icon"
+                      />
+                    )}
+                    <span className="spoke-title">{event.name}</span>
+                  </div>
                   {isSelected && onCooldown && (
                     <span className="spoke-cooldown-badge">⏳ {cooldownTime}s</span>
                   )}
