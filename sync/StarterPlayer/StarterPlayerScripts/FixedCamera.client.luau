@@ -3,7 +3,7 @@ local RunService = game:GetService("RunService")
 
 local ShakeScreen = ReplicatedStorage:WaitForChild("ShakeScreen")
 
-local SHAKE_SPEED, SHAKE_FADE_TIME, MAX_SHAKE = 18, 0.4, 1.5 -- MAX_SHAKE is in degrees, so overlapping bombs don't get wild
+local SHAKE_SPEED, SHAKE_FADE_TIME, MAX_SHAKE = 18, 0.4, 0.75 -- MAX_SHAKE is in degrees, so overlapping bombs don't get wild
 
 local cameraPosition, cameraOrientation = Vector3.new(-56.668, 121.263, -46.513), Vector3.new(-52.802, -179.73, 0)
 local cameraCFrame = CFrame.new(cameraPosition) * CFrame.fromOrientation(math.rad(cameraOrientation.X), math.rad(cameraOrientation.Y), math.rad(cameraOrientation.Z))

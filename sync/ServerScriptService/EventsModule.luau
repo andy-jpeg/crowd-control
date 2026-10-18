@@ -51,8 +51,8 @@ local SLIME_MAX_HEALTH, SLIME_FADE_TIME, SLIME_HEALTH_COLOR = 150, 0.6, Color3.f
 local SWORD_DAMAGE, SWORD_COOLDOWN, SWORD_REACH, SWORD_MAX_HEIGHT = 10, 0.4, 5, 6
 local PODIUM_SIZE, PODIUM_COLOR, PODIUM_MATERIAL = Podium and Podium.Size, Podium and Podium.Color, Podium and Podium.Material
 local INDICATOR_COLOR, INDICATOR_TRANSPARENCY = Color3.fromRGB(255, 40, 40), 0.6
-local BOMB_SHAKE, SLAM_SHAKE, BOULDER_SHAKE, TSUNAMI_SHAKE = 0.6, 1, 0.15, 0.5 -- degrees the screen shakes
-local TORNADO_SHAKE, SHRINK_SHAKE, LAVA_SHAKE = 0.2, 0.3, 0.3
+local BOMB_SHAKE, SLAM_SHAKE, BOULDER_SHAKE, TSUNAMI_SHAKE = 0.3, 0.5, 0.08, 0.25 -- degrees the screen shakes
+local TORNADO_SHAKE, SHRINK_SHAKE, LAVA_SHAKE = 0.1, 0.15, 0.15
 local BOMB_SHAKE_TIME, SLAM_SHAKE_TIME = 0.4, 0.5
 
 local EVENTS = {
@@ -68,7 +68,7 @@ local EVENTS = {
 	floor_is_lava = {method = "FloorIsLava", name = "Floor Is Lava", tip = "Jump onto a platform before the floor burns!", tier = "complex", params = {duration = {default = 15, min = 5, max = 30}}},
 	shrinking_podium = {method = "ShrinkingPodium", name = "Shrinking Podium", tip = "Stay near the center!", tier = "complex", params = {duration = {default = 15, min = 5, max = 25}}},
 	tornado = {method = "Tornado", name = "Tornado", tip = "Keep moving, it chases the closest player!", tier = "complex", params = {duration = {default = 15, min = 5, max = 30}}},
-	tsunami = {method = "Tsunami", name = "Tsunami", tip = "Hide inside the house!", tier = "complex", params = {}},
+	tsunami = {method = "Tsunami", name = "Tsunami", tip = "Run to higher ground!", tier = "complex", params = {}},
 	flood_escape = {method = "FloodEscape", name = "Flood Escape", tip = "Get to higher ground!", tier = "complex", params = {}},
 	blob_fight = {method = "BlobFight", name = "Blob Fight", tip = "Grab your sword and slay the slime!", tier = "complex", params = {}},
 }
