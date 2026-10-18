@@ -182,25 +182,10 @@
   min-height: 380px;
 }
 
-/* The circular rim arc on the left */
-.wheel-arc {
-  position: absolute;
-  left: -270px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 380px;
-  height: 380px;
-  border-radius: 50%;
-  border: var(--cc-border);
-  z-index: 2;
-  background: transparent;
-  pointer-events: none;
-}
-
-/* Circular Showcase in the middle of the wheel arc on the left */
+/* Circular Showcase for the highlighted event icon on the left */
 .wheel-center-display {
   position: absolute;
-  left: 14px;
+  left: 20px;
   top: 50%;
   transform: translateY(-50%);
   width: 96px;

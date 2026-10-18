@@ -414,9 +414,6 @@ export function BasicEventWheelView({
           )}
         </div>
 
-        {/* The Circular Rim (Arc) */}
-        <div className="wheel-arc" />
-
         {/* The Radial Spoke Buttons - Selected value always remains locked in the middle (0 deg) */}
         <div className="wheel-spokes-container">
           {BASIC_EVENTS.map((event, index) => {
