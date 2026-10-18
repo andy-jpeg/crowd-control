@@ -1,6 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import './BasicEventWheelView.css'
 import logo from '../assets/CrowdControl.png'
+import tokenIcon from '../assets/token.png'
+import bombIcon from '../assets/event-bombs.png'
+import springIcon from '../assets/event-spring_traps.png'
+import slimeIcon from '../assets/event-slime_puddles.png'
+import bananaIcon from '../assets/event-banana_peels.png'
+import invertIcon from '../assets/event-inverted_controls.png'
+import nogravIcon from '../assets/event-low_gravity.png'
+import squidIcon from '../assets/event-ink_screen.png'
+
+const EVENT_ICONS: Record<string, string> = {
+  bombs: bombIcon,
+  spring_traps: springIcon,
+  slime_puddles: slimeIcon,
+  banana_peels: bananaIcon,
+  inverted_controls: invertIcon,
+  low_gravity: nogravIcon,
+  ink_screen: squidIcon,
+}
 
 export interface BasicEventItem {
   id: string
@@ -48,11 +66,9 @@ export function BasicEventWheelView({
   tokens,
   userPrediction,
   spectatorName,
-  onSetTokens,
   onAddTokens,
   correctPredictions = 0,
   onTriggerEvent,
-  onBackToVote,
   onNextRound,
   onEndSession,
   roundState,
@@ -64,6 +80,7 @@ export function BasicEventWheelView({
 
   // Center selection index in the wheel (defaults to center event index 3: Banana Peels)
   const [selectedIndex, setSelectedIndex] = useState(3)
+  const currentEvent = BASIC_EVENTS[selectedIndex]
 
   // 1-minute round timer
   const [secondsRemaining, setSecondsRemaining] = useState(ROUND_SECONDS)
@@ -341,14 +358,14 @@ export function BasicEventWheelView({
         </div>
 
         <div className="basic-token-group">
-          <div className="basic-token-badge" />
+          <img src={tokenIcon} className="basic-token-badge" alt="Token" />
           <span className={`basic-token-count ${tokenGain ? 'pulse' : ''}`}>{tokens}</span>
 
           {/* Floating Gain Animation: + [O] 30 or + [O] 50 */}
           {tokenGain && (
             <div key={tokenGain.id} className="token-gain-popup">
               <span className="token-gain-plus">+</span>
-              <div className="token-gain-mini-badge" />
+              <img src={tokenIcon} className="token-gain-mini-badge" alt="Token" />
               <span className="token-gain-amount">{tokenGain.amount}</span>
             </div>
           )}
@@ -373,7 +390,31 @@ export function BasicEventWheelView({
 
       {/* Main Wheel Area */}
       <div className={`wheel-stage ${isRoundActive ? '' : 'wheel-waiting'}`}>
-        {/* The Circular Rim (Arc) - larger and empty */}
+        {/* Highlighted Event Showcase in the middle of the circle */}
+        <div
+          className="wheel-center-display"
+          onClick={() => handleSpokeClick(selectedIndex)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleSpokeClick(selectedIndex)
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          title={`Trigger ${currentEvent.name}`}
+        >
+          {EVENT_ICONS[currentEvent.id] && (
+            <img
+              key={currentEvent.id}
+              src={EVENT_ICONS[currentEvent.id]}
+              alt={currentEvent.name}
+              className="wheel-center-event-icon"
+            />
+          )}
+        </div>
+
+        {/* The Circular Rim (Arc) */}
         <div className="wheel-arc" />
 
         {/* The Radial Spoke Buttons - Selected value always remains locked in the middle (0 deg) */}
@@ -419,7 +460,16 @@ export function BasicEventWheelView({
                 onClick={() => handleSpokeClick(index)}
               >
                 <div className="spoke-content">
-                  <span className="spoke-title">{event.name}</span>
+                  <div className="spoke-title-group">
+                    {EVENT_ICONS[event.id] && (
+                      <img
+                        src={EVENT_ICONS[event.id]}
+                        alt=""
+                        className="spoke-mini-icon"
+                      />
+                    )}
+                    <span className="spoke-title">{event.name}</span>
+                  </div>
                   {isSelected && onCooldown && (
                     <span className="spoke-cooldown-badge">⏳ {cooldownTime}s</span>
                   )}
@@ -448,51 +498,6 @@ export function BasicEventWheelView({
           <p className="wheel-instruction">
             Scroll or swipe wheel • Tap center to trigger
           </p>
-        )}
-
-        {/* Demo / Test Controls */}
-        <div className="wheel-demo-controls">
-          <button
-            type="button"
-            className="dev-nav-btn dev-reset-btn"
-            onClick={() => onSetTokens?.(0)}
-          >
-            ⚠️ Set Tokens to 0 (Test "Not enough tokens")
-          </button>
-        </div>
-
-        {currentRound < totalRounds && onNextRound && (
-          <button
-            type="button"
-            className="dev-nav-btn"
-            style={{
-              marginTop: '0.35rem',
-              background: 'var(--cc-accent)',
-              color: 'var(--cc-on-accent)',
-              border: 'none',
-              fontWeight: 700,
-            }}
-            onClick={onNextRound}
-          >
-            ⏭️ Next Round: Round {currentRound + 1} of {totalRounds} (Complex Event Vote →)
-          </button>
-        )}
-
-        {currentRound >= totalRounds && onEndSession && (
-          <button
-            type="button"
-            className="dev-nav-btn"
-            style={{ marginTop: '0.35rem' }}
-            onClick={() => onEndSession(tokens)}
-          >
-            🏆 Finish Session → (Final Results)
-          </button>
-        )}
-
-        {onBackToVote && (
-          <button type="button" className="dev-nav-btn" onClick={onBackToVote}>
-            ← Back to 15s Vote Screen
-          </button>
         )}
       </div>
 
