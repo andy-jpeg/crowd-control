@@ -536,6 +536,35 @@ export function createApp(
          ON CONFLICT (idempotency_key) DO NOTHING`,
         [session.id, body.round]
       );
+
+      if (body.state === "active") {
+        const winningVote = await client.query<{ event_id: string }>(
+          `SELECT event_id
+           FROM spectator_votes
+           WHERE session_id = $1 AND round_number = $2
+           GROUP BY event_id
+           ORDER BY COUNT(*) DESC, MIN(voted_at) ASC
+           LIMIT 1`,
+          [session.id, body.round]
+        );
+        if (winningVote.rows[0]) {
+          const alreadyQueued = await client.query(
+            `SELECT id FROM event_commands
+             WHERE session_id = $1
+               AND params->>'round' = $2::text
+               AND event_type = ANY($3::text[])`,
+            [session.id, body.round.toString(), Array.from(complexEventIds)]
+          );
+          if (!alreadyQueued.rows.length) {
+            await client.query(
+              `INSERT INTO event_commands (session_id, event_type, triggered_by, params, status)
+               VALUES ($1, $2, 'Spectators', jsonb_build_object('round', $3::int), 'pending')`,
+              [session.id, winningVote.rows[0].event_id, body.round]
+            );
+          }
+        }
+      }
+
       await client.query("COMMIT");
       res.json({ ok: true, round: body.round, totalRounds: body.totalRounds });
     } catch (error) {
@@ -878,6 +907,12 @@ export function createApp(
         res.status(403).json({ error: "Join the session before voting" });
         return;
       }
+      const profile = await client.query<{ username: string }>(
+        "SELECT username FROM spectator_profiles WHERE id = $1",
+        [spectatorId]
+      );
+      const username = profile.rows[0]?.username ?? "A spectator";
+
       await client.query(
         `INSERT INTO spectator_votes (session_id, round_number, spectator_id, event_id)
          VALUES ($1, $2, $3, $4)
@@ -885,6 +920,36 @@ export function createApp(
          DO UPDATE SET event_id = EXCLUDED.event_id, voted_at = now()`,
         [session.id, roundNumber, spectatorId, body.eventId]
       );
+
+      // Find the complex event with the most votes for this round
+      const winningVote = await client.query<{ event_id: string }>(
+        `SELECT event_id
+         FROM spectator_votes
+         WHERE session_id = $1 AND round_number = $2
+         GROUP BY event_id
+         ORDER BY COUNT(*) DESC, MIN(voted_at) ASC
+         LIMIT 1`,
+        [session.id, roundNumber]
+      );
+
+      const winningEventId = winningVote.rows[0]?.event_id ?? body.eventId;
+
+      // Remove any previously pending complex vote command for this round in this session
+      await client.query(
+        `DELETE FROM event_commands 
+         WHERE session_id = $1 AND status = 'pending' 
+           AND params->>'round' = $2::text
+           AND event_type = ANY($3::text[])`,
+        [session.id, roundNumber.toString(), Array.from(complexEventIds)]
+      );
+
+      // Queue the single winning complex event into event_commands for Roblox to poll and execute!
+      await client.query(
+        `INSERT INTO event_commands (session_id, event_type, triggered_by, params, status)
+         VALUES ($1, $2, 'Spectators', jsonb_build_object('round', $3::int), 'pending')`,
+        [session.id, winningEventId, roundNumber]
+      );
+
       await client.query("COMMIT");
       res.json({ ok: true, eventId: body.eventId });
     } catch (error) {

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import './App.css'
 import { AuthPanel } from './auth/AuthPanel'
@@ -98,11 +98,11 @@ function SpectatorApp() {
   const handleVoteEvent = useCallback(async (eventId: string) => {
     try {
       const { token, sub } = await getSpectatorIdentity()
-      await voteComplexEvent(sessionCode, token, sub, eventId)
+      await voteComplexEvent(sessionCode, token, sub, eventId, currentRound)
     } catch (err) {
       console.warn('Backend API unreachable, recorded vote locally:', err)
     }
-  }, [getSpectatorIdentity, sessionCode])
+  }, [getSpectatorIdentity, sessionCode, currentRound])
 
   const handlePrediction = useCallback(async (
     type: 'time_bracket' | 'player',
@@ -130,10 +130,60 @@ function SpectatorApp() {
     }
   }, [getSpectatorIdentity, sessionCode, tokens])
 
-  const handleVoteComplete = useCallback((_selectedEventId: string | null, pred: string | null) => {
+  const handleVoteComplete = useCallback(async (selectedEventId: string | null, pred: string | null) => {
+    if (selectedEventId) {
+      try {
+        const { token, sub } = await getSpectatorIdentity()
+        await voteComplexEvent(sessionCode, token, sub, selectedEventId, currentRound)
+      } catch (err) {
+        console.warn('Backend API unreachable, recorded vote locally:', err)
+      }
+    }
     setUserPrediction(pred)
     setCurrentView('wheel')
-  }, [])
+  }, [getSpectatorIdentity, sessionCode, currentRound])
+
+  const handleNextRound = useCallback(() => {
+    if (currentRound < totalRounds) {
+      setCurrentRound((prev) => prev + 1)
+      setUserPrediction(null)
+      setCurrentView('vote')
+    } else {
+      setCurrentView('end')
+    }
+  }, [currentRound, totalRounds])
+
+  useEffect(() => {
+    if (!sessionCode || (currentView !== 'vote' && currentView !== 'wheel')) return
+    let active = true
+
+    const pollSession = async () => {
+      try {
+        const { token } = await getSpectatorIdentity()
+        const session = await getSession(sessionCode, token)
+        if (!active) return
+
+        if (session.status === 'ended') {
+          setCurrentView('end')
+          return
+        }
+
+        if (typeof session.currentRound === 'number' && session.currentRound > currentRound) {
+          setCurrentRound(session.currentRound)
+          setUserPrediction(null)
+          setCurrentView('vote')
+        }
+      } catch {
+        // Silently ignore polling network failures
+      }
+    }
+
+    const interval = setInterval(pollSession, 2500)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [sessionCode, currentView, currentRound, getSpectatorIdentity])
 
   return (
     <>
@@ -173,6 +223,7 @@ function SpectatorApp() {
 
       {currentView === 'vote' && (
         <ComplexVoteView
+          key={`vote-${currentRound}`}
           sessionCode={sessionCode}
           currentRound={currentRound}
           totalRounds={totalRounds}
@@ -185,6 +236,7 @@ function SpectatorApp() {
 
       {currentView === 'wheel' && (
         <BasicEventWheelView
+          key={`wheel-${currentRound}`}
           sessionCode={sessionCode}
           currentRound={currentRound}
           totalRounds={totalRounds}
@@ -195,6 +247,7 @@ function SpectatorApp() {
           onSetTokens={(amount) => setTokens(amount)}
           onCorrectPrediction={() => setCorrectPredictions((prev) => prev + 1)}
           onBackToVote={() => setCurrentView('vote')}
+          onNextRound={handleNextRound}
           onEndSession={(endTokens) => {
             setTokens(endTokens)
             setCurrentView('end')

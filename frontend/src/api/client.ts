@@ -146,12 +146,13 @@ export function voteComplexEvent(
   code: string,
   token: string,
   sub: string,
-  eventId: string
+  eventId: string,
+  roundNumber?: number
 ): Promise<{ ok: true; eventId: string }> {
   return request<{ ok: true; eventId: string }>(
     `/api/sessions/${encodeURIComponent(code)}/vote`,
     token,
-    { auth0UserId: sub, eventId }
+    { auth0UserId: sub, eventId, ...(roundNumber ? { roundNumber } : {}) }
   );
 }
 

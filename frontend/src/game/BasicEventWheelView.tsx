@@ -32,6 +32,7 @@ interface BasicEventWheelViewProps {
   onCorrectPrediction?: () => void
   onTriggerEvent: (eventId: string) => Promise<number>
   onBackToVote?: () => void
+  onNextRound?: () => void
   onEndSession?: (finalTokens: number) => void
 }
 
@@ -47,6 +48,7 @@ export function BasicEventWheelView({
   onCorrectPrediction,
   onTriggerEvent,
   onBackToVote,
+  onNextRound,
   onEndSession,
 }: BasicEventWheelViewProps) {
   // Center selection index in the wheel (defaults to center event index 3: Banana Peels)
@@ -157,6 +159,23 @@ export function BasicEventWheelView({
     }, 1000)
     return () => clearInterval(timer)
   }, [secondsRemaining])
+
+  // When round timer runs down to 0:00, advance to next round's complex vote or finish session
+  useEffect(() => {
+    if (secondsRemaining <= 0) {
+      if (currentRound < totalRounds && onNextRound) {
+        const timeout = setTimeout(() => {
+          onNextRound()
+        }, 1500)
+        return () => clearTimeout(timeout)
+      } else if (currentRound >= totalRounds && onEndSession) {
+        const timeout = setTimeout(() => {
+          onEndSession(tokens)
+        }, 1500)
+        return () => clearTimeout(timeout)
+      }
+    }
+  }, [secondsRemaining, currentRound, totalRounds, onNextRound, onEndSession, tokens])
 
   // Cooldown countdown for duration events (10s -> 0s)
   useEffect(() => {
@@ -437,20 +456,37 @@ export function BasicEventWheelView({
           </button>
         </div>
 
-        {onBackToVote && (
-          <button type="button" className="dev-nav-btn" onClick={onBackToVote}>
-            ← Back to 15s Vote Screen
+        {currentRound < totalRounds && onNextRound && (
+          <button
+            type="button"
+            className="dev-nav-btn"
+            style={{
+              marginTop: '0.35rem',
+              background: 'var(--cc-accent)',
+              color: 'var(--cc-on-accent)',
+              border: 'none',
+              fontWeight: 700,
+            }}
+            onClick={onNextRound}
+          >
+            ⏭️ Next Round: Round {currentRound + 1} of {totalRounds} (Complex Event Vote →)
           </button>
         )}
 
-        {onEndSession && (
+        {currentRound >= totalRounds && onEndSession && (
           <button
             type="button"
             className="dev-nav-btn"
             style={{ marginTop: '0.35rem' }}
             onClick={() => onEndSession(tokens)}
           >
-            Finish Session → (Demo Ending Screen)
+            🏆 Finish Session → (Final Results)
+          </button>
+        )}
+
+        {onBackToVote && (
+          <button type="button" className="dev-nav-btn" onClick={onBackToVote}>
+            ← Back to 15s Vote Screen
           </button>
         )}
       </div>

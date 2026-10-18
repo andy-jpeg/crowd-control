@@ -811,3 +811,126 @@ test("returns live spectator list and token balances when Roblox polls events", 
   );
 });
 
+test("tallies complex-event votes and delivers winning event to Roblox poll", async () => {
+  const queuedCommands: { id: number; event_type: string; triggered_by: string; params: unknown }[] = [];
+  const votes: { spectator_id: string; round_number: number; event_id: string }[] = [];
+
+  const pool = mockPool((sql, values) => {
+    if (sql.includes("FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 1, total_rounds: 5, status: "active", session_token: "00000000-0000-4000-8000-000000000001" }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT id FROM spectator_profiles")) {
+      const sub = values?.[0] as string;
+      const id = sub === "auth0|user-2" ? "20" : "10";
+      return { rows: [{ id }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT 1 FROM session_memberships")) {
+      return { rows: [{ "?column?": 1 }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO spectator_votes")) {
+      const [_, round, spectatorId, eventId] = values as [unknown, number, string, string];
+      const existing = votes.find((v) => v.spectator_id === spectatorId && v.round_number === round);
+      if (existing) {
+        existing.event_id = eventId;
+      } else {
+        votes.push({ spectator_id: spectatorId, round_number: round, event_id: eventId });
+      }
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("FROM spectator_votes")) {
+      // Return vote leader
+      const counts: Record<string, number> = {};
+      for (const v of votes) {
+        counts[v.event_id] = (counts[v.event_id] || 0) + 1;
+      }
+      let topEvent = "";
+      let maxCount = -1;
+      for (const [evt, count] of Object.entries(counts)) {
+        if (count > maxCount) {
+          maxCount = count;
+          topEvent = evt;
+        }
+      }
+      return { rows: topEvent ? [{ event_id: topEvent }] : [], rowCount: topEvent ? 1 : 0 };
+    }
+    if (sql.includes("DELETE FROM event_commands")) {
+      queuedCommands.length = 0;
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO event_commands")) {
+      const [_, eventType] = values as [unknown, string];
+      queuedCommands.push({ id: queuedCommands.length + 1, event_type: eventType, triggered_by: "Spectators", params: {} });
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("FROM event_commands")) {
+      return {
+        rows: queuedCommands.map((c) => ({
+          id: c.id,
+          type: c.event_type,
+          triggeredBy: c.triggered_by,
+          params: c.params
+        })),
+        rowCount: queuedCommands.length
+      };
+    }
+    if (sql.includes("FROM session_memberships m")) {
+      return { rows: [], rowCount: 0 };
+    }
+    return { rows: [], rowCount: 0 };
+  });
+
+  const allowRoblox: RequestHandler = (_req, _res, next) => next();
+  let currentSub = "auth0|user-1";
+  const dynamicSpectator: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: currentSub },
+      token: "spectator-token"
+    };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, allowRoblox, allowRoblox, dynamicSpectator, allowRoblox),
+    async (baseUrl) => {
+      // User 1 votes for tsunami
+      currentSub = "auth0|user-1";
+      const vote1 = await fetch(`${baseUrl}/api/sessions/KWPZ/vote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ auth0UserId: "auth0|user-1", eventId: "tsunami", roundNumber: 1 })
+      });
+      assert.equal(vote1.status, 200);
+
+      // User 2 votes for giant_boulder
+      currentSub = "auth0|user-2";
+      const vote2 = await fetch(`${baseUrl}/api/sessions/KWPZ/vote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ auth0UserId: "auth0|user-2", eventId: "giant_boulder", roundNumber: 1 })
+      });
+      assert.equal(vote2.status, 200);
+
+      // User 1 changes vote to giant_boulder (giving giant_boulder 2 votes)
+      currentSub = "auth0|user-1";
+      const vote3 = await fetch(`${baseUrl}/api/sessions/KWPZ/vote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ auth0UserId: "auth0|user-1", eventId: "giant_boulder", roundNumber: 1 })
+      });
+      assert.equal(vote3.status, 200);
+
+      // Roblox polls events
+      const pollRes = await fetch(`${baseUrl}/sessions/KWPZ/events?since=0`, {
+        headers: { "x-session-token": "00000000-0000-4000-8000-000000000001" }
+      });
+      assert.equal(pollRes.status, 200);
+      const pollData = await pollRes.json() as { events: { type: string; triggeredBy: string }[] };
+      // Exactly 1 winning complex event is queued
+      assert.equal(pollData.events.length, 1);
+      assert.equal(pollData.events[0].type, "giant_boulder");
+      assert.equal(pollData.events[0].triggeredBy, "Spectators");
+    }
+  );
+});
+
