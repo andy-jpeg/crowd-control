@@ -13,6 +13,7 @@ The contract between the Roblox game server (`sync/ServerScriptService/BackendMo
   - Missing or invalid token → `401`. The game drops its token and retries once with a fresh one, so don't return `401` for anything else (use `403` for "valid token, not allowed")
 - Roblox can't reach `localhost`, so the backend needs a public **HTTPS** URL
 - The game retries network errors, `429`, and `5xx` responses a couple of times. It never retries other `4xx` responses
+- Roblox `/sessions` routes require a machine-to-machine token. Spectator `/api` routes require a user access token for the same API audience; the backend uses its verified Auth0 `sub` and rejects a supplied `auth0UserId` that does not match it.
 
 ## Session codes
 
@@ -35,10 +36,10 @@ The contract between the Roblox game server (`sync/ServerScriptService/BackendMo
 Sent when the player presses Play on the main menu. A server can run several sessions in a row (each one ends with `POST /end`), and each gets a new code.
 
 ```json
-{ "sessionId": "KWPZ", "jobId": "<game.JobId>", "placeId": 123456 }
+{ "sessionId": "KWPZ", "jobId": "<game.JobId>", "placeId": 123456, "totalRounds": 5 }
 ```
 
-- **201 Created** if the code was free. The response contains `{ "sessionId": "KWPZ", "sessionToken": "<server-only UUID>" }`
+- **201 Created** if the code was free. The response contains `{ "sessionId": "KWPZ", "sessionToken": "<server-only UUID>", "totalRounds": 5 }`
 - A retry with the same active code, non-empty `jobId`, and `placeId` returns **201** for the existing session instead of creating a duplicate
 - **409 Conflict** if an active session already uses that code. The game picks a new code and tries again (up to 5 times)
 
@@ -103,7 +104,7 @@ Sent when a round ends. Used to settle bracket bets and pay out tokens. The back
 - `survivalSeconds` is rounded to 0.1s and capped at 120. With more than one player it's the longest survival
 - Brackets: `0:00-0:30`, `0:30-1:00`, `1:00-1:30`, `1:30-2:00`. Surviving the full round (`survivedFullRound: true`) counts as the last bracket
 - Falling off the podium counts as being eliminated
-- An exact retry returns success without inserting a second result; a conflicting result for the same round returns **409**. Prediction payout settlement requires the spectator prediction flow and is not part of these Roblox routes yet.
+- An exact retry returns success without inserting a second result; a conflicting result for the same round returns **409**. Single-player results settle predictions against the non-overlapping time brackets; `survivedFullRound: true` selects the final bracket. Multiplayer results use `players: [{ "playerId": "...", "survivalSeconds": 74.2 }]`; every player tied for maximum survival time is a winning prediction. Each winning spectator receives 50 tokens exactly once in the same transaction as the result.
 
 ### `POST /sessions/:code/end`: session over
 
@@ -115,3 +116,15 @@ Sent when the Roblox server shuts down. Mark the session ended so its code can b
 - Not built on the backend yet: `POST /sessions/:code/round`. Until it exists, the game's round-state updates get a 404 (harmless, but the web app can't open or close betting)
 - Backend routes and Tiger Data schema are implemented in `backend/`; set `DATABASE_URL` in the ignored local `backend/.env`, then run `npm run migrate` from `backend/` before starting the service
 - Round loop: built in `RoundManager.server.luau`
+
+## Spectator API
+
+All spectator routes are under `/api` and require an Auth0 user access token. The `auth0UserId` in a request must match the verified token subject.
+
+- `POST /api/sessions/:code/join` creates/loads the profile and membership, and awards the +50 session-start balance once per membership.
+- `POST /api/sessions/:code/vote` upserts the current-round complex-event vote.
+- `POST /api/sessions/:code/predict` upserts the current-round time-bracket or player prediction.
+- `GET /api/profile/me?auth0UserId=<Auth0 sub>` returns profile and lifetime totals.
+- `PATCH /api/profile/me/username` updates a unique username.
+
+Votes and predictions require the spectator to have joined that session. Round numbers default to the session's current round; requests for a different round are rejected. The session's current round advances after a result is accepted.

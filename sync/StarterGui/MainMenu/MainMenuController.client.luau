@@ -8,6 +8,7 @@ local HostSession = ReplicatedStorage:WaitForChild("HostSession")
 
 local MainMenu = script.Parent
 local Play, Logo = MainMenu.Play, MainMenu.Logo
+local Rounds = MainMenu:FindFirstChild("Rounds") -- optional TextButton that cycles the round count
 local PlayerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 
 local SWAY_ANGLE, SWAY_TIME, PULSE_SCALE, PULSE_TIME = 5, 2, 1.06, 1.4
@@ -15,8 +16,10 @@ local TRANSITION_COLOR, TRANSITION_TIME, LOADING_TIMEOUT = Color3.fromRGB(225, 1
 local GRID_SIZE, GRID_THICKNESS, GRID_COLOR, GRID_TRANSPARENCY = 40, 2, Color3.fromRGB(195, 93, 42), 0.78
 local GRID_SPEED = GRID_SIZE / 3 -- one cell every 3 seconds, matching the website
 local GRID_MARGIN = 3 -- extra cells on every side so an edge never drifts into view
+local MIN_ROUNDS, MAX_ROUNDS = 5, 10
 local logoGoal1, logoGoal2 = {Rotation = SWAY_ANGLE}, {Scale = PULSE_SCALE}
 local isStarting = false
+local chosenRounds = MIN_ROUNDS
 local Cover, Grid, gridConnection = nil, nil, nil
 
 local Transition = Instance.new("ScreenGui")
@@ -25,6 +28,12 @@ Transition.IgnoreGuiInset, Transition.ResetOnSpawn = true, false
 Transition.DisplayOrder = MainMenu.DisplayOrder - 1 -- behind the menu, so the logo (and the lobby UI) stay on top of the cover
 Transition.DisplayOrder = 1
 Transition.Parent = PlayerGui
+
+local function updateRounds()
+	if Rounds and Rounds:IsA("TextButton") then
+		Rounds.Text = "Rounds: " .. chosenRounds
+	end
+end
 
 local function animateLogo()
 	local tweenInfo1 = TweenInfo.new(SWAY_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
@@ -144,11 +153,13 @@ local function updateMenu()
 
 	if inMenu then
 		Play.Visible = not isStarting
+		if Rounds then Rounds.Visible = not isStarting end
 		if not isStarting then
 			removeCover()
 		end
 	elseif inLobby then
 		Play.Visible = false
+		if Rounds then Rounds.Visible = false end
 	else
 		isStarting = false
 		removeCover()
@@ -162,8 +173,9 @@ Play.Activated:Connect(function(inputObject)
 	isStarting = true
 
 	Play.Visible = false
+	if Rounds then Rounds.Visible = false end
 	coverScreen(getClickPosition(inputObject))
-	HostSession:FireServer()
+	HostSession:FireServer(chosenRounds)
 
 	task.delay(LOADING_TIMEOUT, function()
 		local roundState = ReplicatedStorage:GetAttribute("RoundState")
@@ -180,6 +192,15 @@ Transition:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 	end
 end)
 
+if Rounds and Rounds:IsA("GuiButton") then
+	Rounds.Activated:Connect(function()
+		if isStarting then return end
+		chosenRounds = chosenRounds >= MAX_ROUNDS and MIN_ROUNDS or chosenRounds + 1
+		updateRounds()
+	end)
+end
+
 ReplicatedStorage:GetAttributeChangedSignal("RoundState"):Connect(updateMenu)
 updateMenu()
+updateRounds()
 animateLogo()

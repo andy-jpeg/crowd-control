@@ -163,13 +163,14 @@ function Backend.post(path, body)
 	return request("POST", path, body or {})
 end
 
-function Backend.createSession()
+function Backend.createSession(totalRounds)
 	for _ = 1, MAX_CODE_ATTEMPTS do
 		local code = generateCode()
 		local success, data, statusCode = Backend.post("/sessions", {
 			sessionId = code,
 			jobId = game.JobId,
 			placeId = game.PlaceId,
+			totalRounds = totalRounds or 5,
 		})
 
 		if success then
@@ -216,7 +217,7 @@ function Backend.pollEvents(sinceId)
 		return false, {}
 	end
 
-	return true, data.events
+	return true, data.events, (type(data.spectators) == "table" and data.spectators or {})
 end
 
 function Backend.sendResults(results)
