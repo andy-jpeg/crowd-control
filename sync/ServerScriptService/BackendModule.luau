@@ -207,6 +207,8 @@ function Backend.getSessionCode()
 	return sessionCode
 end
 
+local warnedNoSpectators = false
+
 function Backend.pollEvents(sinceId)
 	if not sessionCode then
 		return false, {}
@@ -215,6 +217,11 @@ function Backend.pollEvents(sinceId)
 	local success, data = Backend.get(sessionPath("/events?since=" .. HttpService:UrlEncode(tostring(sinceId or 0))))
 	if not success or type(data) ~= "table" or type(data.events) ~= "table" then
 		return false, {}
+	end
+
+	if type(data.spectators) ~= "table" and not warnedNoSpectators then
+		warnedNoSpectators = true
+		warn("[Backend] the events reply has no spectators list, so the Vultr server is probably running an older backend")
 	end
 
 	return true, data.events, (type(data.spectators) == "table" and data.spectators or {})

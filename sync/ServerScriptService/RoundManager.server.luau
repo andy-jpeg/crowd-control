@@ -11,6 +11,7 @@ local HostSession, StartGame = ReplicatedStorage:WaitForChild("HostSession"), Re
 local ActionLog = ReplicatedStorage:WaitForChild("ActionLog")
 
 local TOTAL_ROUNDS, ROUND_TIME = 5, 120
+local MIN_ROUNDS, MAX_ROUNDS = 5, 10
 local INTERMISSION_TIME, RESULTS_TIME, SESSION_OVER_TIME = 15, 5, 10
 local POLL_INTERVAL, CHECK_INTERVAL = 3, 0.1
 local FALL_DEPTH = 8 -- studs below the podium top that count as falling off
@@ -25,6 +26,7 @@ local lastEventId = 0
 local queuedEvents = {}
 local filteredNames = {}
 local roundPlayers, survivalTimes = {}, {}
+local sessionRounds, eventCounts, eventsRun = {}, {}, 0 -- for the ending screen
 
 local function setState(state, duration)
 	roundState = state
@@ -73,6 +75,10 @@ local function runEvent(event)
 	BackendModule.queueTelemetry({type = ran and "event_run" or "event_rejected", eventId = event.id, eventType = event.type, round = currentRound, delay = delay})
 
 	if ran then
+		eventsRun += 1
+		if type(event.triggeredBy) == "string" then
+			eventCounts[event.triggeredBy] = (eventCounts[event.triggeredBy] or 0) + 1
+		end
 		task.spawn(announceEvent, event, delay) -- filtering yields, so don't hold up the event
 	end
 end
@@ -177,9 +183,12 @@ local function waitForPlayers()
 end
 
 local function startSession()
-	currentRound, lastEventId = 0, 0
+	currentRound, lastEventId, eventsRun = 0, 0, 0
 	table.clear(queuedEvents)
 	table.clear(filteredNames)
+	table.clear(sessionRounds)
+	table.clear(eventCounts)
+	ReplicatedStorage:SetAttribute("SessionSummary", "")
 
 	local success, code = BackendModule.createSession(TOTAL_ROUNDS)
 	if success then
@@ -193,11 +202,46 @@ local function startSession()
 	ReplicatedStorage:SetAttribute("SpectatorCount", 0)
 end
 
+local function buildSummary()
+	local topName, topCount = nil, 0
+	for name, count in eventCounts do
+		if count > topCount then
+			topName, topCount = name, count
+		end
+	end
+
+	local totalSeconds, bestSeconds, fullRounds = 0, 0, 0
+	for _, seconds in sessionRounds do
+		totalSeconds += seconds
+		bestSeconds = math.max(bestSeconds, seconds)
+		if seconds >= ROUND_TIME then
+			fullRounds += 1
+		end
+	end
+
+	return {
+		rounds = sessionRounds,
+		roundTime = ROUND_TIME,
+		totalSeconds = totalSeconds,
+		bestSeconds = bestSeconds,
+		fullRounds = fullRounds,
+		eventsRun = eventsRun,
+		spectatorCount = ReplicatedStorage:GetAttribute("SpectatorCount") or 0,
+		topSpectator = topName and filterName(topName) or nil,
+		topSpectatorEvents = topCount,
+	}
+end
+
 local function runLobby()
 	setState("lobby")
 	reportState()
 
-	waitForRequest(StartGame, canStart)
+	local _, chosenRounds = waitForRequest(StartGame, canStart)
+	if type(chosenRounds) == "number" and chosenRounds == chosenRounds then -- the host picks the round count in the lobby
+		TOTAL_ROUNDS = math.clamp(math.floor(chosenRounds), MIN_ROUNDS, MAX_ROUNDS)
+	end
+	ReplicatedStorage:SetAttribute("TotalRounds", TOTAL_ROUNDS)
+	print("[RoundManager] starting " .. TOTAL_ROUNDS .. " rounds")
 end
 
 local function runIntermission(duration)
@@ -277,6 +321,7 @@ local function showResults(survivalSeconds)
 	local results = {round = currentRound, survivalSeconds = survivalSeconds, survivedFullRound = survivalSeconds >= ROUND_TIME}
 
 	ReplicatedStorage:SetAttribute("LastSurvivalSeconds", survivalSeconds)
+	table.insert(sessionRounds, survivalSeconds)
 	setState("results", RESULTS_TIME)
 	reportState(RESULTS_TIME)
 
@@ -303,9 +348,19 @@ task.spawn(function()
 
 		if polled and code == BackendModule.getSessionCode() then -- skip replies for a session that ended while we waited
 			if type(spectators) == "table" then
-				local json = HttpService:JSONEncode(spectators)
-				ReplicatedStorage:SetAttribute("SpectatorList", json)
-				ReplicatedStorage:SetAttribute("SpectatorCount", #spectators)
+				local list = {}
+				for _, spectator in spectators do
+					if type(spectator) == "table" then
+						table.insert(list, {username = filterName(spectator.username), tokenBalance = tonumber(spectator.tokenBalance) or 0}) -- names are typed on the website, so they go through the filter
+					end
+				end
+				if code == BackendModule.getSessionCode() then
+					if #list ~= ReplicatedStorage:GetAttribute("SpectatorCount") then
+						print("[RoundManager] spectators in " .. code .. ": " .. #list)
+					end
+					ReplicatedStorage:SetAttribute("SpectatorList", HttpService:JSONEncode(list))
+					ReplicatedStorage:SetAttribute("SpectatorCount", #list)
+				end
 			end
 
 			for _, event in events do
@@ -322,15 +377,10 @@ while true do
 	setState("menu")
 	ReplicatedStorage:SetAttribute("SessionCode", "")
 
-	local chosenRounds
-	hostPlayer, chosenRounds = waitForRequest(HostSession, function()
+	hostPlayer = waitForRequest(HostSession, function()
 		return true
 	end)
-	if type(chosenRounds) == "number" then
-		TOTAL_ROUNDS = math.clamp(math.floor(chosenRounds), 5, 10)
-	else
-		TOTAL_ROUNDS = 5
-	end
+	TOTAL_ROUNDS = MIN_ROUNDS -- the real count comes in with StartGame
 	ReplicatedStorage:SetAttribute("TotalRounds", TOTAL_ROUNDS)
 	ReplicatedStorage:SetAttribute("HostUserId", hostPlayer.UserId)
 
@@ -345,6 +395,7 @@ while true do
 		showResults(playRound())
 	end
 
+	ReplicatedStorage:SetAttribute("SessionSummary", HttpService:JSONEncode(buildSummary())) -- set before the state so the ending screen has it right away
 	setState("sessionOver", SESSION_OVER_TIME)
 	BackendModule.endSession()
 	task.wait(SESSION_OVER_TIME)

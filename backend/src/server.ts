@@ -527,6 +527,15 @@ export function createApp(
          WHERE id = $1`,
         [session.id, body.round, body.totalRounds ?? null]
       );
+      await client.query(
+        `INSERT INTO token_ledger (membership_id, delta, reason, idempotency_key)
+         SELECT id, 30, 'round_reward',
+                'round-reward:' || session_id::text || ':' || $2::text || ':' || spectator_id::text
+         FROM session_memberships
+         WHERE session_id = $1
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [session.id, body.round]
+      );
       await client.query("COMMIT");
       res.json({ ok: true, round: body.round, totalRounds: body.totalRounds });
     } catch (error) {

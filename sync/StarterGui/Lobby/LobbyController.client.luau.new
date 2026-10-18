@@ -1,0 +1,512 @@
+local GuiService = game:GetService("GuiService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local Lobby = script.Parent
+local Code = Lobby:WaitForChild("Code")
+local CodeImage = Lobby:WaitForChild("CodeImage")
+local Start = Lobby:FindFirstChild("Start") -- hooks up automatically once you add it
+local StartGame = ReplicatedStorage:WaitForChild("StartGame")
+
+local CODE_FORMAT = "%s"
+local NO_CODE = "Offline"
+local SHOW_DELAY = 0.6 -- matches the menu's cover transition
+local POP_TIME = 0.4
+local POP_STAGGER = 0.08
+local EXIT_TIME, START_SHRINK_TIME, EXIT_MARGIN = 0.45, 0.3, 20
+local LEAVE_TIMEOUT = 5
+local START_SWAY_ANGLE, START_SWAY_TIME, START_PULSE_SCALE, START_PULSE_TIME = 2.5, 2.6, 1.035, 1.8 -- calmer than the logo (5, 2, 1.06, 1.4)
+local EMPTY_TEXT = "Waiting for spectators...\nJoin at survivalofthe.fit"
+local FALLBACK_NAME = "A spectator"
+local ROW_HEIGHT, ROW_PADDING, HEADER_HEIGHT, LIST_PADDING = 34, 6, 40, 12
+local SURFACE_COLOR, ROW_COLOR = Color3.fromRGB(237, 181, 76), Color3.fromRGB(225, 158, 29)
+local BORDER_COLOR, TEXT_COLOR, MUTED_TEXT_COLOR = Color3.fromRGB(195, 93, 42), Color3.fromRGB(43, 22, 6), Color3.fromRGB(107, 58, 18)
+local LIGHT_COLOR, MUTED_COLOR = Color3.fromRGB(255, 247, 232), Color3.fromRGB(185, 130, 42)
+local MIN_ROUNDS, MAX_ROUNDS = 5, 10
+local SLIDER_MIN_WIDTH, SLIDER_MAX_WIDTH, SLIDER_GAP = 200, 340, 14
+local LABEL_HEIGHT, TRACK_HEIGHT, KNOB_SIZE, KNOB_PRESS_SCALE = 30, 14, 30, 1.15
+local SLIDER_HEIGHT = LABEL_HEIGHT + KNOB_SIZE + 6
+local SLIDER_TIME = 0.12
+
+local popGoal, shrinkGoal = {Scale = 1}, {Scale = 0}
+local startGoal1 = {Rotation = START_SWAY_ANGLE}
+local knobGoal1, knobGoal2 = {Scale = KNOB_PRESS_SCALE}, {Scale = 1}
+
+local isShown = false
+local showId = 0
+local isLeaving = false
+local homePositions = {}
+local knownNames = {}
+local chosenRounds = MIN_ROUNDS
+local isDragging = false
+
+local function addCorner(parent, radius)
+	local UICorner = Instance.new("UICorner")
+	UICorner.CornerRadius = radius
+	UICorner.Parent = parent
+end
+
+local function addStroke(parent, thickness)
+	local UIStroke = Instance.new("UIStroke")
+	UIStroke.Color, UIStroke.Thickness = BORDER_COLOR, thickness
+	UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	UIStroke.Parent = parent
+end
+
+local function createText(name, text, size, color, alignment)
+	local Label = Instance.new("TextLabel")
+	Label.Name = name
+	Label.BackgroundTransparency = 1
+	Label.FontFace, Label.TextSize, Label.TextColor3 = Code.FontFace, size, color -- same font as the code label
+	Label.TextXAlignment = alignment or Enum.TextXAlignment.Left
+	Label.TextTruncate = Enum.TextTruncate.AtEnd
+	Label.Text = text
+	return Label
+end
+
+local function buildSpectators()
+	local Spectators = Instance.new("Frame")
+	Spectators.Name = "Spectators"
+	Spectators.AnchorPoint = Vector2.new(1, 0.5)
+	Spectators.Position = UDim2.new(1, -24, 0.5, 0)
+	Spectators.Size = UDim2.fromScale(0.24, 0.6)
+	Spectators.BackgroundColor3, Spectators.BorderSizePixel = SURFACE_COLOR, 0
+	addCorner(Spectators, UDim.new(0, 12))
+	addStroke(Spectators, 3)
+
+	local UISizeConstraint = Instance.new("UISizeConstraint")
+	UISizeConstraint.MinSize, UISizeConstraint.MaxSize = Vector2.new(200, 220), Vector2.new(320, 520)
+	UISizeConstraint.Parent = Spectators
+
+	local Header = createText("Header", "Spectators (0)", 24, TEXT_COLOR)
+	Header.Position = UDim2.fromOffset(LIST_PADDING, 6)
+	Header.Size = UDim2.new(1, -LIST_PADDING * 2, 0, HEADER_HEIGHT)
+	Header.Parent = Spectators
+
+	local List = Instance.new("ScrollingFrame")
+	List.Name = "List"
+	List.Position = UDim2.fromOffset(LIST_PADDING, HEADER_HEIGHT + 10)
+	List.Size = UDim2.new(1, -LIST_PADDING * 2, 1, -(HEADER_HEIGHT + 10 + LIST_PADDING))
+	List.BackgroundTransparency, List.BorderSizePixel = 1, 0
+	List.ScrollBarThickness, List.ScrollBarImageColor3 = 6, BORDER_COLOR
+	List.CanvasSize, List.AutomaticCanvasSize = UDim2.new(), Enum.AutomaticSize.Y
+	List.Parent = Spectators
+
+	local UIListLayout = Instance.new("UIListLayout")
+	UIListLayout.Padding = UDim.new(0, ROW_PADDING)
+	UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	UIListLayout.Parent = List
+
+	local Empty = createText("Empty", EMPTY_TEXT, 18, MUTED_TEXT_COLOR, Enum.TextXAlignment.Center)
+	Empty.Position = List.Position
+	Empty.Size = UDim2.new(1, -LIST_PADDING * 2, 0, 60)
+	Empty.TextWrapped, Empty.TextTruncate = true, Enum.TextTruncate.None
+	Empty.Parent = Spectators
+
+	Spectators.Parent = Lobby
+	return Spectators
+end
+
+local function buildRounds()
+	local Rounds = Instance.new("Frame")
+	Rounds.Name = "Rounds"
+	Rounds.AnchorPoint = Vector2.new(0.5, 0)
+	Rounds.BackgroundTransparency = 1
+
+	local RoundsLabel = createText("RoundsLabel", "Rounds: " .. MIN_ROUNDS, 26, LIGHT_COLOR, Enum.TextXAlignment.Center)
+	RoundsLabel.Size = UDim2.new(1, 0, 0, LABEL_HEIGHT)
+	RoundsLabel.Parent = Rounds
+
+	local LabelStroke = Instance.new("UIStroke")
+	LabelStroke.Color, LabelStroke.Thickness = BORDER_COLOR, 2.5
+	LabelStroke.Parent = RoundsLabel
+
+	local Track = Instance.new("Frame")
+	Track.Name = "Track"
+	Track.AnchorPoint = Vector2.new(0, 0.5)
+	Track.Position = UDim2.new(0, KNOB_SIZE / 2, 0, LABEL_HEIGHT + 6 + KNOB_SIZE / 2)
+	Track.Size = UDim2.new(1, -KNOB_SIZE, 0, TRACK_HEIGHT) -- inset so the knob stays inside at both ends
+	Track.BackgroundColor3, Track.BorderSizePixel = MUTED_COLOR, 0
+	addCorner(Track, UDim.new(1, 0))
+	addStroke(Track, 3)
+	Track.Parent = Rounds
+
+	local Fill = Instance.new("Frame")
+	Fill.Name = "Fill"
+	Fill.BackgroundColor3, Fill.BorderSizePixel = BORDER_COLOR, 0
+	addCorner(Fill, UDim.new(1, 0))
+	Fill.Parent = Track
+
+	for value = MIN_ROUNDS, MAX_ROUNDS do
+		local Tick = Instance.new("Frame")
+		Tick.Name = "Tick"
+		Tick.AnchorPoint = Vector2.new(0.5, 0.5)
+		Tick.Position = UDim2.fromScale((value - MIN_ROUNDS) / (MAX_ROUNDS - MIN_ROUNDS), 0.5)
+		Tick.Size = UDim2.fromOffset(4, 4)
+		Tick.BackgroundColor3, Tick.BackgroundTransparency, Tick.BorderSizePixel = LIGHT_COLOR, 0.3, 0
+		addCorner(Tick, UDim.new(0.5, 0))
+		Tick.Parent = Track
+	end
+
+	local Knob = Instance.new("Frame")
+	Knob.Name = "Knob"
+	Knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	Knob.Size = UDim2.fromOffset(KNOB_SIZE, KNOB_SIZE)
+	Knob.BackgroundColor3, Knob.BorderSizePixel, Knob.ZIndex = LIGHT_COLOR, 0, 2
+	addCorner(Knob, UDim.new(0.5, 0))
+	addStroke(Knob, 3)
+	Knob.Parent = Track
+
+	local Hitbox = Instance.new("TextButton")
+	Hitbox.Name = "Hitbox"
+	Hitbox.Position = UDim2.fromOffset(0, LABEL_HEIGHT)
+	Hitbox.Size = UDim2.new(1, 0, 0, KNOB_SIZE + 12)
+	Hitbox.BackgroundTransparency, Hitbox.Text, Hitbox.AutoButtonColor, Hitbox.ZIndex = 1, "", false, 3 -- bigger than the track so it's easy to grab on mobile
+	Hitbox.Parent = Rounds
+
+	Rounds.Parent = Lobby
+	return Rounds
+end
+
+local isCustomRounds = Lobby:FindFirstChild("Rounds") ~= nil -- a Rounds you placed in Studio keeps its own position
+local Spectators = Lobby:FindFirstChild("Spectators") or buildSpectators()
+local Rounds = Lobby:FindFirstChild("Rounds") or buildRounds()
+local function findPart(parent, name)
+	local part = parent:FindFirstChild(name, true) -- searches nested frames too, so custom layouts still work
+	if not part then
+		warn("[Lobby] " .. parent.Name .. " is missing " .. name)
+	end
+	return part
+end
+
+local Header, List, Empty = findPart(Spectators, "Header"), findPart(Spectators, "List"), findPart(Spectators, "Empty")
+local RoundsLabel, Track, Fill, Knob = findPart(Rounds, "RoundsLabel"), findPart(Rounds, "Track"), findPart(Rounds, "Fill"), findPart(Rounds, "Knob")
+local Hitbox = Rounds:FindFirstChild("Hitbox", true) or Track -- without a Hitbox, the track itself is the drag area
+local KnobScale = Knob and (Knob:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", Knob))
+
+local popElements = {CodeImage, Code, Rounds, Spectators, Start}
+local exitGroups = {
+	{direction = "top", elements = {CodeImage, Code}},
+	{direction = "right", elements = {Spectators}},
+	{direction = "bottom", elements = {Rounds}},
+}
+for _, group in exitGroups do
+	for _, element in group.elements do
+		homePositions[element] = element.Position
+	end
+end
+
+local function getScale(element)
+	local scale = element:FindFirstChildOfClass("UIScale")
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Parent = element
+	end
+	return scale
+end
+
+local function popIn(element, delay)
+	local info = TweenInfo.new(POP_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local scale = getScale(element)
+	scale.Scale = 0
+	local tween = TweenService:Create(scale, info, popGoal)
+
+	task.delay(delay or 0, function()
+		tween:Play()
+	end)
+end
+
+local function setRounds(value, instant)
+	chosenRounds = value
+	if RoundsLabel then
+		RoundsLabel.Text = "Rounds: " .. value
+	end
+	if not (Knob and Fill) then return end
+
+	local alpha = (value - MIN_ROUNDS) / (MAX_ROUNDS - MIN_ROUNDS)
+	local goal1, goal2 = {Position = UDim2.fromScale(alpha, 0.5)}, {Size = UDim2.fromScale(alpha, 1)}
+	if instant then
+		Knob.Position, Fill.Size = goal1.Position, goal2.Size
+		return
+	end
+
+	local tweenInfo = TweenInfo.new(SLIDER_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+	local knobTween = TweenService:Create(Knob, tweenInfo, goal1)
+	local fillTween = TweenService:Create(Fill, tweenInfo, goal2)
+
+	knobTween:Play()
+	fillTween:Play()
+end
+
+local function setPressed(isPressed)
+	if not KnobScale then return end
+	local tweenInfo = TweenInfo.new(SLIDER_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+	local pressTween = TweenService:Create(KnobScale, tweenInfo, isPressed and knobGoal1 or knobGoal2)
+
+	pressTween:Play()
+end
+
+local function updateFromInput(position)
+	if not Track then return end
+	local alpha = math.clamp((position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X, 0, 1)
+	local value = MIN_ROUNDS + math.round(alpha * (MAX_ROUNDS - MIN_ROUNDS))
+	if value ~= chosenRounds then
+		setRounds(value)
+	end
+end
+
+local function placeRounds()
+	if isCustomRounds then return end
+
+	local codePosition, codeSize = CodeImage.AbsolutePosition - Lobby.AbsolutePosition, CodeImage.AbsoluteSize
+	local top = codePosition.Y + codeSize.Y + SLIDER_GAP
+	if top + SLIDER_HEIGHT > Lobby.AbsoluteSize.Y then
+		top = codePosition.Y - SLIDER_GAP - SLIDER_HEIGHT -- no room under the code, so go above it
+	end
+
+	Rounds.Size = UDim2.fromOffset(math.clamp(codeSize.X, SLIDER_MIN_WIDTH, SLIDER_MAX_WIDTH), SLIDER_HEIGHT)
+	Rounds.Position = UDim2.fromOffset(codePosition.X + codeSize.X / 2, top)
+end
+
+local function createRow(name, tokens, order)
+	local Row = Instance.new("Frame")
+	Row.Name = "Row"
+	Row.Size = UDim2.new(1, -8, 0, ROW_HEIGHT) -- leaves room for the scroll bar
+	Row.BackgroundColor3, Row.BorderSizePixel, Row.LayoutOrder = ROW_COLOR, 0, order
+	addCorner(Row, UDim.new(0, 8))
+	addStroke(Row, 2)
+
+	local Name = createText("Name", name, 18, TEXT_COLOR)
+	Name.Position = UDim2.fromOffset(10, 0)
+	Name.Size = UDim2.new(0.7, -10, 1, 0)
+	Name.Parent = Row
+
+	local Tokens = createText("Tokens", tostring(tokens), 16, MUTED_TEXT_COLOR, Enum.TextXAlignment.Right)
+	Tokens.AnchorPoint = Vector2.new(1, 0)
+	Tokens.Position = UDim2.new(1, -10, 0, 0)
+	Tokens.Size = UDim2.new(0.3, 0, 1, 0)
+	Tokens.Parent = Row
+
+	Row.Parent = List
+	return Row
+end
+
+local function getSpectators()
+	local success, spectators = pcall(HttpService.JSONDecode, HttpService, ReplicatedStorage:GetAttribute("SpectatorList") or "[]")
+	return (success and type(spectators) == "table") and spectators or {}
+end
+
+local function updateSpectators()
+	if not (Header and List and Empty) then return end
+	local spectators = getSpectators()
+	local seenNames = {}
+
+	for _, child in List:GetChildren() do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+
+	for index, spectator in spectators do
+		local entry = type(spectator) == "table" and spectator or {}
+		local name = tostring(entry.username or FALLBACK_NAME)
+		local Row = createRow(name, tonumber(entry.tokenBalance) or 0, index)
+		if isShown and not knownNames[name] then
+			popIn(Row) -- only new spectators pop in
+		end
+		seenNames[name] = true
+	end
+
+	knownNames = seenNames
+	Header.Text = "Spectators (" .. #spectators .. ")"
+	Empty.Visible = #spectators == 0
+end
+
+local function getClickPosition(inputObject)
+	if inputObject and inputObject.Position.Magnitude > 0 then
+		return Vector2.new(inputObject.Position.X, inputObject.Position.Y) + GuiService:GetGuiInset() -- input positions start below the top bar
+	end
+
+	local inset = Lobby.IgnoreGuiInset and Vector2.zero or GuiService:GetGuiInset()
+	return Start.AbsolutePosition + Start.AbsoluteSize / 2 + inset
+end
+
+local function getExitOffset(group)
+	local screenSize = Lobby.AbsoluteSize
+	local distance = 0
+	for _, element in group.elements do -- grouped elements travel the same distance so they stay together
+		local position, size = element.AbsolutePosition - Lobby.AbsolutePosition, element.AbsoluteSize
+		if group.direction == "top" then
+			distance = math.max(distance, position.Y + size.Y)
+		elseif group.direction == "bottom" then
+			distance = math.max(distance, screenSize.Y - position.Y)
+		else
+			distance = math.max(distance, screenSize.X - position.X)
+		end
+	end
+
+	distance += EXIT_MARGIN
+	if group.direction == "top" then
+		return UDim2.fromOffset(0, -distance)
+	elseif group.direction == "bottom" then
+		return UDim2.fromOffset(0, distance)
+	end
+	return UDim2.fromOffset(distance, 0)
+end
+
+local function resetPositions()
+	for element, position in homePositions do
+		element.Position = position
+	end
+end
+
+local function leaveLobby()
+	local tweenInfo1 = TweenInfo.new(EXIT_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+	local tweenInfo2 = TweenInfo.new(START_SHRINK_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+
+	local exitTweens = {}
+	for _, group in exitGroups do
+		local offset = getExitOffset(group)
+		for _, element in group.elements do
+			table.insert(exitTweens, TweenService:Create(element, tweenInfo1, {Position = homePositions[element] + offset}))
+		end
+	end
+	local startTween = TweenService:Create(getScale(Start), tweenInfo2, shrinkGoal)
+
+	for _, tween in exitTweens do
+		tween:Play()
+	end
+	startTween:Play()
+end
+
+local function animateStart()
+	local size = Start.Size
+	local startGoal2 = {Size = UDim2.new(size.X.Scale * START_PULSE_SCALE, size.X.Offset * START_PULSE_SCALE, size.Y.Scale * START_PULSE_SCALE, size.Y.Offset * START_PULSE_SCALE)} -- pulses Size since its UIScale handles the pop in and shrink
+
+	local tweenInfo1 = TweenInfo.new(START_SWAY_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	local tweenInfo2 = TweenInfo.new(START_PULSE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+
+	Start.Rotation = -START_SWAY_ANGLE -- start on one side so it sways evenly both ways
+
+	local startTween1 = TweenService:Create(Start, tweenInfo1, startGoal1)
+	local startTween2 = TweenService:Create(Start, tweenInfo2, startGoal2)
+
+	startTween1:Play()
+	startTween2:Play()
+end
+
+local function updateCode()
+	local code = ReplicatedStorage:GetAttribute("SessionCode")
+	Code.Text = (code and code ~= "") and string.format(CODE_FORMAT, code) or NO_CODE
+end
+
+local function updateStart()
+	local isHost = ReplicatedStorage:GetAttribute("HostUserId") == player.UserId
+	Rounds.Visible = isHost -- only the host picks the round count
+	if Start then
+		Start.Visible = isHost
+	end
+end
+
+local function updateLobby()
+	local inLobby = ReplicatedStorage:GetAttribute("RoundState") == "lobby"
+	if inLobby == isShown then return end
+	isShown = inLobby
+	showId += 1
+
+	if not inLobby then
+		Lobby.Enabled = false
+		return
+	end
+
+	local id = showId
+	isLeaving = false
+	resetPositions()
+	player:SetAttribute("LeavingLobby", false)
+	updateCode()
+	updateStart()
+	updateSpectators()
+	setRounds(MIN_ROUNDS, true)
+	task.delay(SHOW_DELAY, function()
+		if id ~= showId then return end -- left the lobby before the cover finished
+		Lobby.Enabled = true
+		placeRounds()
+		for index, element in popElements do
+			popIn(element, (index - 1) * POP_STAGGER)
+		end
+	end)
+end
+
+if Start then
+	Start.Activated:Connect(function(inputObject)
+		if isLeaving then return end
+		isLeaving, isDragging = true, false
+		player:SetAttribute("UncoverPosition", getClickPosition(inputObject)) -- the cover shrinks back into the Start button
+		player:SetAttribute("LeavingLobby", true) -- the menu script sends the logo up too
+		leaveLobby()
+
+		local id = showId
+		task.delay(EXIT_TIME, function()
+			StartGame:FireServer(chosenRounds)
+		end)
+		task.delay(EXIT_TIME + LEAVE_TIMEOUT, function()
+			if id == showId and isShown and isLeaving then -- the game never started, so bring the lobby back
+				isLeaving = false
+				resetPositions()
+				player:SetAttribute("LeavingLobby", false)
+				for index, element in popElements do
+					popIn(element, (index - 1) * POP_STAGGER)
+				end
+			end
+		end)
+	end)
+end
+
+if Hitbox then
+	Hitbox.InputBegan:Connect(function(inputObject)
+		local inputType = inputObject.UserInputType
+		if isLeaving or (inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch) then
+			return
+		end
+		isDragging = true
+		setPressed(true)
+		updateFromInput(inputObject.Position)
+	end)
+end
+
+UserInputService.InputChanged:Connect(function(inputObject)
+	local inputType = inputObject.UserInputType
+	if isDragging and (inputType == Enum.UserInputType.MouseMovement or inputType == Enum.UserInputType.Touch) then
+		updateFromInput(inputObject.Position)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(inputObject)
+	local inputType = inputObject.UserInputType
+	if isDragging and (inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch) then
+		isDragging = false
+		setPressed(false)
+	end
+end)
+
+for _, signal in {CodeImage:GetPropertyChangedSignal("AbsolutePosition"), CodeImage:GetPropertyChangedSignal("AbsoluteSize"), Lobby:GetPropertyChangedSignal("AbsoluteSize")} do
+	signal:Connect(placeRounds)
+end
+
+setRounds(MIN_ROUNDS, true)
+Lobby.Enabled = false
+ReplicatedStorage:GetAttributeChangedSignal("RoundState"):Connect(updateLobby)
+ReplicatedStorage:GetAttributeChangedSignal("SessionCode"):Connect(updateCode)
+ReplicatedStorage:GetAttributeChangedSignal("HostUserId"):Connect(updateStart)
+ReplicatedStorage:GetAttributeChangedSignal("SpectatorList"):Connect(updateSpectators)
+if Start then
+	animateStart()
+end
+updateSpectators()
+updateLobby()
