@@ -49,11 +49,17 @@ function SpectatorApp() {
   }, [getAccessTokenSilently, user?.sub])
 
   const handleJoin = useCallback(async (code: string) => {
+    const sub = readAuth0Subject(user?.sub) ?? ''
+    const storedUsername =
+      localStorage.getItem(`cc_username_${sub}`) ||
+      (user?.email ? localStorage.getItem(`cc_username_${user.email}`) : null)
+    const effectiveName = storedUsername || user?.nickname || 'Spectator'
+
     try {
-      const { token, sub } = await getSpectatorIdentity()
+      const { token, sub: activeSub } = await getSpectatorIdentity()
       const joined = await joinSession(code, token, {
-        sub,
-        nickname: user?.nickname,
+        sub: activeSub,
+        nickname: effectiveName,
       })
       setSessionCode(code)
       // When the spectator joins a session, they get 50 tokens
@@ -61,7 +67,7 @@ function SpectatorApp() {
         ? joined.tokenBalance
         : 50
       setTokens(initialTokens)
-      setSpectatorName(joined.username)
+      setSpectatorName(joined.username || effectiveName)
       setCurrentRound(joined.currentRound)
       setTotalRounds(joined.totalRounds ?? 5)
       setCurrentView('vote')
@@ -70,7 +76,7 @@ function SpectatorApp() {
       setSessionCode(code)
       // When the spectator joins a session, they get 50 tokens
       setTokens(50)
-      setSpectatorName(user?.nickname ?? 'Spectator')
+      setSpectatorName(effectiveName)
       setCurrentRound(1)
       setTotalRounds(5)
       setCurrentView('vote')
