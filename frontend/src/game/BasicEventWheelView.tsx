@@ -33,9 +33,9 @@ const BASIC_EVENTS: BasicEventItem[] = [
   { id: 'spring_traps', name: 'Spring Traps', type: 'spammable', cost: 30 },
   { id: 'slime_puddles', name: 'Slime Puddles', type: 'spammable', cost: 30 },
   { id: 'banana_peels', name: 'Banana Peels', type: 'spammable', cost: 30 },
-  { id: 'inverted_controls', name: 'Inverted Controls', type: 'duration', duration: 10, cost: 30 },
-  { id: 'low_gravity', name: 'Low Gravity', type: 'duration', duration: 10, cost: 30 },
-  { id: 'ink_screen', name: 'Squid Screen', type: 'duration', duration: 10, cost: 30 },
+  { id: 'inverted_controls', name: 'Inverted Controls', type: 'spammable', cost: 50 },
+  { id: 'low_gravity', name: 'Low Gravity', type: 'spammable', cost: 50 },
+  { id: 'ink_screen', name: 'Squid Screen', type: 'spammable', cost: 50 },
 ]
 
 const REWARD_INTERVAL_SECONDS = 7 // matches the backend's watch rewards
@@ -57,7 +57,6 @@ interface BasicEventWheelViewProps {
   onBackToVote?: () => void
   onNextRound?: () => void
   onEndSession?: (finalTokens: number) => void
-  activeLocks?: Record<string, number>
 }
 
 export function BasicEventWheelView({
@@ -74,7 +73,6 @@ export function BasicEventWheelView({
   onEndSession,
   roundState,
   roundEndsAt,
-  activeLocks,
 }: BasicEventWheelViewProps) {
   const isLive = roundState !== undefined
   const isRoundActive = !isLive || roundState === 'active'
@@ -86,10 +84,6 @@ export function BasicEventWheelView({
 
   // 1-minute round timer
   const [secondsRemaining, setSecondsRemaining] = useState(ROUND_SECONDS)
-
-  // Cooldown tracker for duration events (stores expiration timestamp in ms)
-  const [cooldownEndsAt, setCooldownEndsAt] = useState<Record<string, number>>({})
-  const [currentTimeMs, setCurrentTimeMs] = useState(Date.now())
 
   const [isPurchasing, setIsPurchasing] = useState(false)
   const [purchaseError, setPurchaseError] = useState('')
@@ -166,7 +160,6 @@ export function BasicEventWheelView({
   const awardedIntervalsRef = useRef<Set<number>>(new Set())
   useEffect(() => {
     awardedIntervalsRef.current = new Set()
-    setCooldownEndsAt({})
   }, [currentRound])
 
   useEffect(() => {
@@ -233,49 +226,6 @@ export function BasicEventWheelView({
       }
     }
   }, [isLive, secondsRemaining, currentRound, totalRounds, onNextRound, onEndSession, tokens])
-
-  // Tick every 250ms for smooth and accurate cooldown countdowns and clock updates
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTimeMs(Date.now())
-    }, 250)
-    return () => clearInterval(timer)
-  }, [])
-
-  // Sync incoming server locks from polling across all spectators
-  useEffect(() => {
-    if (!activeLocks) return
-    const now = Date.now()
-    setCooldownEndsAt((prev) => {
-      const next: Record<string, number> = {}
-      let changed = false
-
-      // Apply active locks reported by backend
-      for (const [eventId, remainingSeconds] of Object.entries(activeLocks)) {
-        if (remainingSeconds > 0) {
-          const serverEndsAt = now + remainingSeconds * 1000
-          const localEndsAt = prev[eventId] ?? 0
-          next[eventId] = Math.max(localEndsAt, serverEndsAt)
-          if (next[eventId] !== prev[eventId]) {
-            changed = true
-          }
-        }
-      }
-
-      // If backend no longer reports the lock, keep it only until its local timer expires
-      for (const [eventId, endsAt] of Object.entries(prev)) {
-        if (!(eventId in next)) {
-          if (endsAt > now) {
-            next[eventId] = endsAt
-          } else {
-            changed = true
-          }
-        }
-      }
-
-      return changed ? next : prev
-    })
-  }, [activeLocks])
 
   // Format mm:ss
   const minutes = Math.floor(secondsRemaining / 60)
@@ -354,24 +304,12 @@ export function BasicEventWheelView({
       return
     }
 
-    // Check cooldown for duration events
-    const currentEndsAt = cooldownEndsAt[currentEvent.id] ?? 0
-    const remainingCooldown = Math.max(0, Math.ceil((currentEndsAt - Date.now()) / 1000))
-    if (currentEvent.type === 'duration' && remainingCooldown > 0) {
-      return
-    }
-
     setPurchaseError('')
     setIsPurchasing(true)
     try {
       const nextBalance = await onTriggerEvent(currentEvent.id)
       if (!Number.isSafeInteger(nextBalance) || nextBalance < 0) {
         throw new Error('The server returned an invalid token balance.')
-      }
-
-      // Set 10s cooldown for duration events
-      if (currentEvent.type === 'duration') {
-        setCooldownEndsAt((prev) => ({ ...prev, [currentEvent.id]: Date.now() + 10000 }))
       }
 
       setTriggerFeedback(currentEvent.name)
@@ -450,35 +388,28 @@ export function BasicEventWheelView({
       {/* Main Wheel Area */}
       <div className={`wheel-stage ${isRoundActive ? '' : 'wheel-waiting'}`}>
         {/* Highlighted Event Showcase in the middle of the circle */}
-        {(() => {
-          const selectedEndsAt = cooldownEndsAt[currentEvent.id] ?? 0
-          const selectedCooldown = Math.max(0, Math.ceil((selectedEndsAt - currentTimeMs) / 1000))
-          const isSelectedOnCooldown = currentEvent.type === 'duration' && selectedCooldown > 0
-          return (
-            <div
-              className={`wheel-center-display ${isSelectedOnCooldown ? 'cooldown' : ''}`}
-              onClick={() => handleSpokeClick(selectedIndex)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  handleSpokeClick(selectedIndex)
-                }
-              }}
-              role="button"
-              tabIndex={0}
-              title={isSelectedOnCooldown ? `${currentEvent.name} (locked for ${selectedCooldown}s)` : `Trigger ${currentEvent.name}`}
-            >
-              {EVENT_ICONS[currentEvent.id] && (
-                <img
-                  key={currentEvent.id}
-                  src={EVENT_ICONS[currentEvent.id]}
-                  alt={currentEvent.name}
-                  className="wheel-center-event-icon"
-                />
-              )}
-            </div>
-          )
-        })()}
+        <div
+          className="wheel-center-display"
+          onClick={() => handleSpokeClick(selectedIndex)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleSpokeClick(selectedIndex)
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          title={`Trigger ${currentEvent.name}`}
+        >
+          {EVENT_ICONS[currentEvent.id] && (
+            <img
+              key={currentEvent.id}
+              src={EVENT_ICONS[currentEvent.id]}
+              alt={currentEvent.name}
+              className="wheel-center-event-icon"
+            />
+          )}
+        </div>
 
         {/* The Radial Spoke Buttons - Selected value always remains locked in the middle (0 deg) */}
         <div className="wheel-spokes-container">
@@ -506,16 +437,12 @@ export function BasicEventWheelView({
               sizeClass = 'size-small'
             }
 
-            const endsAt = cooldownEndsAt[event.id] ?? 0
-            const cooldownTime = Math.max(0, Math.ceil((endsAt - currentTimeMs) / 1000))
-            const onCooldown = event.type === 'duration' && cooldownTime > 0
-
             return (
               <button
                 key={event.id}
                 type="button"
-                disabled={isPurchasing || (isSelected && onCooldown)}
-                className={`spoke-btn ${sizeClass} ${onCooldown ? 'cooldown' : ''}`}
+                disabled={isPurchasing}
+                className={`spoke-btn ${sizeClass}`}
                 style={{
                   transform: `translateY(-50%) rotate(${rotationDeg}deg)`,
                   opacity,
@@ -534,14 +461,8 @@ export function BasicEventWheelView({
                     )}
                     <span className="spoke-title">{event.name}</span>
                   </div>
-                  {isSelected && onCooldown && (
-                    <span className="spoke-cooldown-badge">⏳ {cooldownTime}s</span>
-                  )}
-                  {isSelected && !onCooldown && (
+                  {isSelected && (
                     <span className="spoke-cost-badge">{event.cost} pts</span>
-                  )}
-                  {!isSelected && onCooldown && (
-                    <span className="spoke-mini-cooldown">{cooldownTime}s</span>
                   )}
                 </div>
               </button>
