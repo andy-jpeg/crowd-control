@@ -23,8 +23,9 @@ interface BasicEventWheelViewProps {
   sessionCode?: string
   currentRound?: number
   totalRounds?: number
-  initialTokens?: number
-  onTriggerEvent?: (eventId: string) => void
+  tokens: number
+  spectatorName?: string
+  onTriggerEvent: (eventId: string) => Promise<number>
   onBackToVote?: () => void
 }
 
@@ -32,7 +33,8 @@ export function BasicEventWheelView({
   sessionCode = 'KWPZ',
   currentRound = 1,
   totalRounds = 5,
-  initialTokens = 50,
+  tokens,
+  spectatorName,
   onTriggerEvent,
   onBackToVote,
 }: BasicEventWheelViewProps) {
@@ -42,13 +44,8 @@ export function BasicEventWheelView({
   // 2-minute round timer (120 seconds)
   const [secondsRemaining, setSecondsRemaining] = useState(120)
 
-  // Token balance
-  const [tokens, setTokens] = useState(initialTokens)
-
-  // Cooldown tracker for duration events (10 seconds)
-  const [cooldowns, setCooldowns] = useState<Record<string, number>>({})
-
-  // Feedback animation when a button is pressed
+  const [isPurchasing, setIsPurchasing] = useState(false)
+  const [purchaseError, setPurchaseError] = useState('')
   const [triggerFeedback, setTriggerFeedback] = useState<string | null>(null)
 
   // Touch gesture tracking for wheel swipe
@@ -63,22 +60,6 @@ export function BasicEventWheelView({
     }, 1000)
     return () => clearInterval(timer)
   }, [secondsRemaining])
-
-  // Cooldown countdown for duration events
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCooldowns((prev) => {
-        const next: Record<string, number> = {}
-        for (const [key, val] of Object.entries(prev)) {
-          if (val > 1) {
-            next[key] = val - 1
-          }
-        }
-        return next
-      })
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
 
   // Format mm:ss
   const minutes = Math.floor(secondsRemaining / 60)
@@ -129,7 +110,8 @@ export function BasicEventWheelView({
   }
 
   // Handle clicking on an event
-  const handleSpokeClick = (index: number) => {
+  const handleSpokeClick = async (index: number) => {
+    if (isPurchasing) return
     if (index !== selectedIndex) {
       // Tap any spoke on the wheel -> rotates it into the fixed middle slot!
       setSelectedIndex(index)
@@ -139,25 +121,21 @@ export function BasicEventWheelView({
     // Tap the center/selected spoke -> trigger the event!
     const currentEvent = BASIC_EVENTS[selectedIndex]
 
-    // Check cooldown for duration events
-    if (currentEvent.type === 'duration' && (cooldowns[currentEvent.id] ?? 0) > 0) {
-      return
-    }
-
-    // Deduct tokens
-    setTokens((prev) => Math.max(0, prev - currentEvent.cost))
-
-    // Set 10s cooldown for duration events
-    if (currentEvent.type === 'duration') {
-      setCooldowns((prev) => ({ ...prev, [currentEvent.id]: 10 }))
-    }
-
-    // Visual feedback animation
-    setTriggerFeedback(currentEvent.name)
-    setTimeout(() => setTriggerFeedback(null), 1200)
-
-    if (onTriggerEvent) {
-      onTriggerEvent(currentEvent.id)
+    setPurchaseError('')
+    setIsPurchasing(true)
+    try {
+      const nextBalance = await onTriggerEvent(currentEvent.id)
+      if (!Number.isSafeInteger(nextBalance) || nextBalance < 0) {
+        throw new Error('The server returned an invalid token balance.')
+      }
+      setTriggerFeedback(currentEvent.name)
+      setTimeout(() => setTriggerFeedback(null), 1200)
+    } catch (error) {
+      setPurchaseError(error instanceof Error
+        ? error.message
+        : 'Purchase could not be completed. Please try again.')
+    } finally {
+      setIsPurchasing(false)
     }
   }
 
@@ -171,7 +149,10 @@ export function BasicEventWheelView({
     >
       {/* Top Header Bar */}
       <header className="basic-topbar">
-        <span className="basic-app-title">Crowd Control {sessionCode ? `• ${sessionCode}` : ''}</span>
+        <span className="basic-app-title">
+          Crowd Control {sessionCode ? `• ${sessionCode}` : ''}
+          {spectatorName ? ` • @${spectatorName}` : ''}
+        </span>
       </header>
 
       {/* Sub-header info: Timer & Tokens */}
@@ -225,15 +206,12 @@ export function BasicEventWheelView({
               sizeClass = 'size-small'
             }
 
-            const cooldownTime = cooldowns[event.id] ?? 0
-            const onCooldown = cooldownTime > 0
-
             return (
               <button
                 key={event.id}
                 type="button"
-                disabled={isSelected && onCooldown}
-                className={`spoke-btn ${sizeClass} ${onCooldown ? 'cooldown' : ''}`}
+                disabled={isPurchasing}
+                className={`spoke-btn ${sizeClass}`}
                 style={{
                   transform: `translateY(-50%) rotate(${rotationDeg}deg)`,
                   opacity,
@@ -243,14 +221,8 @@ export function BasicEventWheelView({
               >
                 <div className="spoke-content">
                   <span className="spoke-title">{event.name}</span>
-                  {isSelected && onCooldown && (
-                    <span className="spoke-cooldown-badge">⏳ {cooldownTime}s</span>
-                  )}
-                  {isSelected && !onCooldown && (
+                  {isSelected && (
                     <span className="spoke-cost-badge">{event.cost} pts</span>
-                  )}
-                  {!isSelected && onCooldown && (
-                    <span className="spoke-mini-cooldown">{cooldownTime}s</span>
                   )}
                 </div>
               </button>
@@ -261,8 +233,12 @@ export function BasicEventWheelView({
 
       {/* Action Prompt / Trigger Toast */}
       <div className="wheel-footer">
-        {triggerFeedback ? (
+        {purchaseError ? (
+          <p className="wheel-error" role="alert">{purchaseError}</p>
+        ) : triggerFeedback ? (
           <div className="trigger-toast">⚡ {triggerFeedback} Triggered!</div>
+        ) : isPurchasing ? (
+          <p className="wheel-instruction" role="status">Processing purchase…</p>
         ) : (
           <p className="wheel-instruction">
             Scroll or swipe wheel • Tap center to trigger

@@ -1,3 +1,4 @@
+local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -158,9 +159,9 @@ end
 
 local function waitForRequest(remote, isAllowed)
 	while true do
-		local player = remote.OnServerEvent:Wait()
-		if isAllowed(player) then
-			return player
+		local player, arg1 = remote.OnServerEvent:Wait()
+		if isAllowed(player, arg1) then
+			return player, arg1
 		end
 	end
 end
@@ -180,14 +181,16 @@ local function startSession()
 	table.clear(queuedEvents)
 	table.clear(filteredNames)
 
-	local success, code = BackendModule.createSession()
+	local success, code = BackendModule.createSession(TOTAL_ROUNDS)
 	if success then
-		print("[RoundManager] session started: " .. code)
+		print("[RoundManager] session started: " .. code .. " (" .. TOTAL_ROUNDS .. " rounds)")
 	else
 		warn("[RoundManager] couldn't create a session, playing offline")
 	end
 
 	ReplicatedStorage:SetAttribute("SessionCode", success and code or "")
+	ReplicatedStorage:SetAttribute("SpectatorList", "[]")
+	ReplicatedStorage:SetAttribute("SpectatorCount", 0)
 end
 
 local function runLobby()
@@ -296,9 +299,15 @@ task.spawn(function()
 		task.wait(POLL_INTERVAL)
 
 		local code = BackendModule.getSessionCode()
-		local polled, events = BackendModule.pollEvents(lastEventId)
+		local polled, events, spectators = BackendModule.pollEvents(lastEventId)
 
 		if polled and code == BackendModule.getSessionCode() then -- skip replies for a session that ended while we waited
+			if type(spectators) == "table" then
+				local json = HttpService:JSONEncode(spectators)
+				ReplicatedStorage:SetAttribute("SpectatorList", json)
+				ReplicatedStorage:SetAttribute("SpectatorCount", #spectators)
+			end
+
 			for _, event in events do
 				if type(event) == "table" and type(event.id) == "number" and event.id > lastEventId then
 					lastEventId = event.id
@@ -313,9 +322,16 @@ while true do
 	setState("menu")
 	ReplicatedStorage:SetAttribute("SessionCode", "")
 
-	hostPlayer = waitForRequest(HostSession, function()
+	local chosenRounds
+	hostPlayer, chosenRounds = waitForRequest(HostSession, function()
 		return true
 	end)
+	if type(chosenRounds) == "number" then
+		TOTAL_ROUNDS = math.clamp(math.floor(chosenRounds), 5, 10)
+	else
+		TOTAL_ROUNDS = 5
+	end
+	ReplicatedStorage:SetAttribute("TotalRounds", TOTAL_ROUNDS)
 	ReplicatedStorage:SetAttribute("HostUserId", hostPlayer.UserId)
 
 	startSession()

@@ -234,8 +234,8 @@ test("joins a spectator once and grants the session-start tokens through the led
   let membershipInsertCount = 0;
   let rewardInsertCount = 0;
   const pool = mockPool((sql, values) => {
-    if (sql.includes("SELECT id, current_round FROM sessions")) {
-      return { rows: [{ id: "31", current_round: 2 }], rowCount: 1 };
+    if (sql.includes("FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 2, total_rounds: 5 }], rowCount: 1 };
     }
     if (sql.includes("INSERT INTO spectator_profiles")) {
       return { rows: [{ id: "17", username: "crowd_user" }], rowCount: 1 };
@@ -279,7 +279,8 @@ test("joins a spectator once and grants the session-start tokens through the led
         sessionId: "31",
         tokenBalance: 50,
         username: "crowd_user",
-        currentRound: 2
+        currentRound: 2,
+        totalRounds: 5
       });
     }
   );
@@ -339,8 +340,8 @@ test("accepts complex-event votes and validated predictions for the current roun
   const statements: string[] = [];
   const pool = mockPool((sql) => {
     statements.push(sql);
-    if (sql.includes("SELECT id, current_round FROM sessions")) {
-      return { rows: [{ id: "31", current_round: 1 }], rowCount: 1 };
+    if (sql.includes("FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 1, total_rounds: 5 }], rowCount: 1 };
     }
     if (sql.includes("SELECT id FROM spectator_profiles")) {
       return { rows: [{ id: "17" }], rowCount: 1 };
@@ -448,7 +449,7 @@ test("settles tied multiplayer predictions once and treats exact result retries 
   };
 
   await withServer(
-    createApp(pool, allowAuth, allowAuth),
+    createApp(pool, allowAuth, allowAuth, allowAuth, allowAuth),
     async (baseUrl) => {
       const sendResult = () => fetch(`${baseUrl}/sessions/KWPZ/results`, {
         method: "POST",
@@ -471,3 +472,324 @@ test("settles tied multiplayer predictions once and treats exact result retries 
   assert.ok(predictionRewards.every((key) => key.startsWith("pred-reward:31:1:")));
   assert.equal(statements.filter((sql) => sql.includes("UPDATE spectator_predictions")).length, 3);
 });
+
+test("purchases a basic event transactionally and reserves its room-wide lock", async () => {
+  const statements: string[] = [];
+  const ledgerValues: unknown[][] = [];
+  const pool = mockPool((sql, values) => {
+    statements.push(sql);
+    if (sql.includes("FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 1, total_rounds: 5 }], rowCount: 1 };
+    }
+    if (sql.includes("FROM spectator_profiles p")) {
+      return {
+        rows: [{ id: "17", username: "crowd_user", token_balance: "80" }],
+        rowCount: 1
+      };
+    }
+    if (sql.includes("INSERT INTO event_commands")) {
+      return { rows: [{ id: "55" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO event_locks")) {
+      return { rows: [{ id: "6" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO token_ledger")) {
+      ledgerValues.push(values ?? []);
+      return { rows: [{ id: "12" }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT token_balance")) {
+      return { rows: [{ token_balance: "50" }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+  const spectatorAuth: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: "auth0|test-user" },
+      token: "verified-test-token"
+    };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth, spectatorAuth, allowAuth),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/sessions/KWPZ/purchase`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|test-user",
+          eventType: "low_gravity"
+        })
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        ok: true,
+        eventType: "low_gravity",
+        tokenBalance: 50
+      });
+    }
+  );
+  assert.ok(statements.includes("BEGIN"));
+  assert.ok(statements.includes("COMMIT"));
+  assert.ok(statements.some((sql) => sql.includes("INSERT INTO event_locks")));
+  assert.equal(ledgerValues[0]?.[0], "31");
+  assert.equal(ledgerValues[0]?.[1], "17");
+  assert.match(String(ledgerValues[0]?.[2]), /^purchase:31:17:/);
+  assert.match(statements.find((sql) => sql.includes("INSERT INTO token_ledger")) ?? "", /-30, 'purchase'/);
+});
+
+test("does not create a command or charge tokens when purchase balance is insufficient", async () => {
+  const statements: string[] = [];
+  const pool = mockPool((sql) => {
+    statements.push(sql);
+    if (sql.includes("FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 1, total_rounds: 5 }], rowCount: 1 };
+    }
+    if (sql.includes("FROM spectator_profiles p")) {
+      return {
+        rows: [{ id: "17", username: "crowd_user", token_balance: "29" }],
+        rowCount: 1
+      };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+  const spectatorAuth: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: "auth0|test-user" },
+      token: "verified-test-token"
+    };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth, spectatorAuth, allowAuth),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/sessions/KWPZ/purchase`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|test-user",
+          eventType: "bombs"
+        })
+      });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "Insufficient tokens" });
+    }
+  );
+  assert.ok(statements.includes("ROLLBACK"));
+  assert.equal(statements.some((sql) => sql.includes("INSERT INTO event_commands")), false);
+  assert.equal(statements.some((sql) => sql.includes("INSERT INTO token_ledger")), false);
+});
+
+test("rejects a locked duration event without charging or enqueueing the purchase", async () => {
+  const statements: string[] = [];
+  const pool = mockPool((sql) => {
+    statements.push(sql);
+    if (sql.includes("FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 1, total_rounds: 5 }], rowCount: 1 };
+    }
+    if (sql.includes("FROM spectator_profiles p")) {
+      return {
+        rows: [{ id: "17", username: "crowd_user", token_balance: "80" }],
+        rowCount: 1
+      };
+    }
+    if (sql.includes("INSERT INTO event_commands")) {
+      return { rows: [{ id: "55" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO event_locks")) {
+      return { rows: [], rowCount: 0 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+  const spectatorAuth: RequestHandler = (req, _res, next) => {
+    req.auth = {
+      header: {},
+      payload: { sub: "auth0|test-user" },
+      token: "verified-test-token"
+    };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth, spectatorAuth, allowAuth),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/sessions/KWPZ/purchase`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          auth0UserId: "auth0|test-user",
+          eventType: "inverted_controls"
+        })
+      });
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), {
+        error: "Event is currently active or locked"
+      });
+    }
+  );
+  assert.ok(statements.includes("ROLLBACK"));
+  assert.equal(statements.some((sql) => sql.includes("INSERT INTO token_ledger")), false);
+});
+
+test("validates totalRounds on session creation (min 5, max 10)", async () => {
+  const pool = mockPool((sql) => {
+    if (sql.includes("INSERT INTO sessions")) {
+      return { rows: [{ id: "1" }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth),
+    async (baseUrl) => {
+      // Rejects below 5
+      const low = await fetch(`${baseUrl}/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: "ABCD", jobId: "test-job", placeId: 1, totalRounds: 4 })
+      });
+      assert.equal(low.status, 400);
+
+      // Rejects above 10
+      const high = await fetch(`${baseUrl}/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: "ABCD", jobId: "test-job", placeId: 1, totalRounds: 11 })
+      });
+      assert.equal(high.status, 400);
+
+      // Accepts 7
+      const valid = await fetch(`${baseUrl}/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: "ABCD", jobId: "test-job", placeId: 1, totalRounds: 7 })
+      });
+      assert.equal(valid.status, 201);
+      const data = await valid.json() as { totalRounds: number };
+      assert.equal(data.totalRounds, 7);
+    }
+  );
+});
+
+test("updates round and totalRounds via POST /sessions/:code/round", async () => {
+  const statements: string[] = [];
+  const pool = mockPool((sql) => {
+    statements.push(sql);
+    if (sql.includes("SELECT id, session_token, status FROM sessions")) {
+      return { rows: [{ id: "31", session_token: "00000000-0000-4000-8000-000000000001", status: "active" }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/sessions/KWPZ/round`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-session-token": "00000000-0000-4000-8000-000000000001"
+        },
+        body: JSON.stringify({ round: 2, totalRounds: 8, state: "intermission" })
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { ok: true, round: 2, totalRounds: 8 });
+    }
+  );
+  assert.ok(statements.some((sql) => sql.includes("UPDATE sessions") && sql.includes("total_rounds")));
+});
+
+test("serves session details to spectators via GET /api/sessions/:code", async () => {
+  const pool = mockPool((sql) => {
+    if (sql.includes("SELECT id, current_round, total_rounds, status FROM sessions")) {
+      return { rows: [{ id: "31", current_round: 3, total_rounds: 7, status: "active" }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+  const spectatorAuth: RequestHandler = (req, _res, next) => {
+    req.auth = { header: {}, payload: { sub: "auth0|test" }, token: "test" };
+    next();
+  };
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth, spectatorAuth, allowAuth),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/sessions/KWPZ`, {
+        headers: { authorization: "Bearer test" }
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        sessionId: "31",
+        currentRound: 3,
+        totalRounds: 7,
+        status: "active"
+      });
+    }
+  );
+});
+
+test("returns live spectator list and token balances when Roblox polls events", async () => {
+  const pool = mockPool((sql) => {
+    if (sql.includes("SELECT id, session_token, status FROM sessions")) {
+      return { rows: [{ id: "31", session_token: "00000000-0000-4000-8000-000000000001", status: "active" }], rowCount: 1 };
+    }
+    if (sql.includes("FROM event_commands")) {
+      return { rows: [{ id: 1, type: "bombs", triggeredBy: "kush", params: {} }], rowCount: 1 };
+    }
+    if (sql.includes("FROM session_memberships m")) {
+      return {
+        rows: [
+          { username: "kush", tokenBalance: "80" },
+          { username: "diya", tokenBalance: "50" }
+        ],
+        rowCount: 2
+      };
+    }
+    return { rows: [], rowCount: 0 };
+  });
+  const allowAuth: RequestHandler = (_req, _res, next) => next();
+
+  await withServer(
+    createApp(pool, allowAuth, allowAuth),
+    async (baseUrl) => {
+      // Test GET /sessions/:code/events includes spectators
+      const eventsRes = await fetch(`${baseUrl}/sessions/KWPZ/events?since=0`, {
+        headers: { "x-session-token": "00000000-0000-4000-8000-000000000001" }
+      });
+      assert.equal(eventsRes.status, 200);
+      const eventsData = await eventsRes.json() as {
+        events: unknown[];
+        spectators: { username: string; tokenBalance: number }[];
+      };
+      assert.equal(eventsData.events.length, 1);
+      assert.deepEqual(eventsData.spectators, [
+        { username: "kush", tokenBalance: 80 },
+        { username: "diya", tokenBalance: 50 }
+      ]);
+
+      // Test GET /sessions/:code/spectators dedicated endpoint
+      const spectatorsRes = await fetch(`${baseUrl}/sessions/KWPZ/spectators`, {
+        headers: { "x-session-token": "00000000-0000-4000-8000-000000000001" }
+      });
+      assert.equal(spectatorsRes.status, 200);
+      const spectatorsData = await spectatorsRes.json() as {
+        spectators: { username: string; tokenBalance: number }[];
+      };
+      assert.deepEqual(spectatorsData.spectators, [
+        { username: "kush", tokenBalance: 80 },
+        { username: "diya", tokenBalance: 50 }
+      ]);
+    }
+  );
+});
+
+

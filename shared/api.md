@@ -36,10 +36,10 @@ The contract between the Roblox game server (`sync/ServerScriptService/BackendMo
 Sent when the player presses Play on the main menu. A server can run several sessions in a row (each one ends with `POST /end`), and each gets a new code.
 
 ```json
-{ "sessionId": "KWPZ", "jobId": "<game.JobId>", "placeId": 123456 }
+{ "sessionId": "KWPZ", "jobId": "<game.JobId>", "placeId": 123456, "totalRounds": 5 }
 ```
 
-- **201 Created** if the code was free. The response contains `{ "sessionId": "KWPZ", "sessionToken": "<server-only UUID>" }`
+- **201 Created** if the code was free. The response contains `{ "sessionId": "KWPZ", "sessionToken": "<server-only UUID>", "totalRounds": 5 }`
 - A retry with the same active code, non-empty `jobId`, and `placeId` returns **201** for the existing session instead of creating a duplicate
 - **409 Conflict** if an active session already uses that code. The game picks a new code and tries again (up to 5 times)
 

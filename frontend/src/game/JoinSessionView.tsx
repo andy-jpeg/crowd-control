@@ -2,7 +2,7 @@ import { useState } from 'react'
 import './JoinSessionView.css'
 
 interface JoinSessionViewProps {
-  onJoin: (sessionCode: string) => void
+  onJoin: (sessionCode: string) => Promise<void> | void
   onBack?: () => void
 }
 
@@ -10,9 +10,11 @@ export function JoinSessionView({ onJoin, onBack }: JoinSessionViewProps) {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [backHovered, setBackHovered] = useState(false)
+  const [isJoining, setIsJoining] = useState(false)
 
-  const handleJoinSubmit = (e?: React.FormEvent) => {
+  const handleJoinSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
+    if (isJoining) return
     const trimmed = code.trim().toUpperCase()
 
     if (!trimmed) {
@@ -25,13 +27,22 @@ export function JoinSessionView({ onJoin, onBack }: JoinSessionViewProps) {
       return
     }
 
-    if (!/^[A-Z]{4}$/.test(trimmed)) {
-      setError('Only letters are allowed.')
+    if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ]{4}$/.test(trimmed)) {
+      setError('Use four valid session letters. The letters I and O are not used.')
       return
     }
 
     setError('')
-    onJoin(trimmed)
+    setIsJoining(true)
+    try {
+      await onJoin(trimmed)
+    } catch (joinError) {
+      setError(joinError instanceof Error
+        ? joinError.message
+        : 'Unable to join that session. Please try again.')
+    } finally {
+      setIsJoining(false)
+    }
   }
 
   return (
@@ -66,13 +77,14 @@ export function JoinSessionView({ onJoin, onBack }: JoinSessionViewProps) {
             autoComplete="off"
             autoCapitalize="characters"
             spellCheck="false"
+            disabled={isJoining}
             onChange={(e) => {
               setCode(e.target.value.toUpperCase())
               setError('')
             }}
           />
-          <button type="submit" className="join-submit-btn">
-            Join
+          <button type="submit" className="join-submit-btn" disabled={isJoining}>
+            {isJoining ? 'Joining…' : 'Join'}
           </button>
         </form>
 

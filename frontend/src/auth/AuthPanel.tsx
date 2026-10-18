@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { profileService, type ProfileRecord, UsernameTakenError } from './profileService'
 
@@ -6,6 +6,17 @@ type OnboardingState = 'choice' | 'onboarding' | 'dashboard'
 
 const usernameMinLength = 3
 const usernameMaxLength = 24
+
+function readAuth0Subject(subject: unknown): string | null {
+  return typeof subject === 'string' && subject.length > 0 ? subject : null
+}
+
+function requireAccessToken(token: string | undefined): string {
+  if (!token) {
+    throw new Error('Unable to get an API access token. Please log in again.')
+  }
+  return token
+}
 
 function validateUsername(value: string) {
   const trimmed = value.trim()
@@ -37,6 +48,7 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     error,
     loginWithRedirect,
     logout,
+    getAccessTokenSilently,
   } = useAuth0()
 
   const [usernameInput, setUsernameInput] = useState('')
@@ -46,21 +58,22 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
   const [saveError, setSaveError] = useState('')
   const [saveLoading, setSaveLoading] = useState(false)
 
-  const activeUserId = useMemo(() => user?.sub ?? null, [user?.sub])
+  const activeUserId: string = readAuth0Subject(user?.sub) ?? ''
 
   useEffect(() => {
     if (!isAuthenticated || !activeUserId) {
       setProfile(null)
       return
     }
+    const auth0UserId = activeUserId
 
     let cancelled = false
 
     setProfileLoading(true)
     setProfileError('')
 
-    profileService
-      .getProfile(activeUserId)
+    getAccessTokenSilently()
+      .then((token) => profileService.getProfile(auth0UserId, requireAccessToken(token)))
       .then((nextProfile) => {
         if (!cancelled) {
           setProfile(nextProfile)
@@ -80,7 +93,7 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [isAuthenticated, activeUserId])
+  }, [getAccessTokenSilently, isAuthenticated, activeUserId])
 
   const handleSignupEmail = () => {
     loginWithRedirect({
@@ -102,7 +115,8 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     })
 
   const handleUsernameSave = async () => {
-    if (!activeUserId) {
+    const auth0UserId = activeUserId
+    if (!auth0UserId) {
       setSaveError('You must be authenticated before creating a username.')
       return
     }
@@ -117,7 +131,8 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
     setSaveError('')
 
     try {
-      const nextProfile = await profileService.saveUsername(activeUserId, usernameInput.trim())
+      const token = requireAccessToken(await getAccessTokenSilently())
+      const nextProfile = await profileService.saveUsername(auth0UserId, usernameInput.trim(), token)
       setProfile(nextProfile)
       setUsernameInput(nextProfile.username ?? '')
     } catch (error) {
@@ -156,8 +171,10 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
             <p className="auth-error-text">{profileError}</p>
             <button type="button" className="secondary" onClick={() => {
               if (activeUserId) {
+                const auth0UserId = activeUserId
                 setProfileLoading(true)
-                profileService.getProfile(activeUserId)
+                getAccessTokenSilently()
+                  .then((token) => profileService.getProfile(auth0UserId, requireAccessToken(token)))
                   .then((nextProfile) => setProfile(nextProfile))
                   .catch(() => setProfileError('Unable to load your profile right now. Please try again.'))
                   .finally(() => setProfileLoading(false))
@@ -204,9 +221,6 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
           </button>
         </div>
 
-        <p className="auth-note">
-          Development mock: username persistence is currently handled by a replaceable frontend profile service while the backend and Tiger Data profile API are being built.
-        </p>
       </div>
     )
   }
@@ -225,7 +239,7 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
         </div>
         <div className="stat-card">
           <span className="stat-label">Overall Tokens Spent</span>
-          <strong className="stat-value">{profile?.overallTokensSpent ?? 0}</strong>
+          <strong className="stat-value">{profile?.totalTokensSpent ?? 0}</strong>
         </div>
       </div>
 

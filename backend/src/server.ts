@@ -8,8 +8,18 @@ const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "127.0.0.1";
 const sessionCodePattern = /^[ABCDEFGHJKLMNPQRSTUVWXYZ]{4}$/;
 const sessionTokenPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const usernamePattern = /^[\p{L}\p{N}_]{1,32}$/u;
+const usernamePattern = /^[\p{L}\p{N}_-]{1,32}$/u;
 const maxTelemetryEvents = 500;
+const allowedFrontendOrigins = new Set(
+  (process.env.FRONTEND_ORIGINS ?? "https://survivalofthe.fit,https://www.survivalofthe.fit")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
+if (process.env.NODE_ENV !== "production") {
+  allowedFrontendOrigins.add("http://localhost:5173");
+  allowedFrontendOrigins.add("http://127.0.0.1:5173");
+}
 const complexEventIds = new Set([
   "giant_boulder",
   "floor_is_lava",
@@ -17,7 +27,6 @@ const complexEventIds = new Set([
   "blob_fight",
   "tsunami",
   "flood_escape",
-  "obby_chase",
   "shrinking_podium"
 ]);
 const timeBrackets = new Set([
@@ -26,6 +35,16 @@ const timeBrackets = new Set([
   "1:00 - 1:30",
   "1:30 - 2:00"
 ]);
+const basicEventIds = new Set([
+  "bombs",
+  "spring_traps",
+  "slime_puddles",
+  "banana_peels",
+  "inverted_controls",
+  "low_gravity",
+  "ink_screen"
+]);
+const lockedEventIds = new Set(["inverted_controls", "low_gravity", "ink_screen"]);
 
 const requireRobloxAuth: RequestHandler = auth({
   issuerBaseURL: "https://dev-m0jsbayhzkudzxmh.us.auth0.com/",
@@ -52,7 +71,7 @@ const requireSpectatorToken: RequestHandler = (req, res, next) => {
 
 type JsonObject = Record<string, unknown>;
 type SessionRow = { id: string; session_token: string; status: "active" | "ended" };
-type SpectatorSession = { id: string; current_round: number };
+type SpectatorSession = { id: string; current_round: number; total_rounds: number };
 type ResultPlayer = { playerId: string; survivalSeconds: number };
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -122,7 +141,7 @@ async function getSpectatorSession(
   code: string
 ): Promise<SpectatorSession | null> {
   const result = await client.query<SpectatorSession>(
-    `SELECT id, current_round FROM sessions
+    `SELECT id, current_round, total_rounds FROM sessions
      WHERE session_code = $1 AND status = 'active'
      FOR SHARE`,
     [code]
@@ -257,6 +276,24 @@ export function createApp(
   spectatorTokenCheck: RequestHandler = requireSpectatorToken
 ) {
   const app = express();
+  app.use((req, res, next) => {
+    const origin = req.get("Origin");
+    if (origin && !allowedFrontendOrigins.has(origin)) {
+      res.status(403).json({ error: "Origin is not allowed" });
+      return;
+    }
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    }
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
   app.use(express.json({ limit: "256kb" }));
 
   app.get("/", (_req, res) => {
@@ -287,19 +324,26 @@ export function createApp(
       return;
     }
 
+    const rawTotalRounds = body.totalRounds ?? 5;
+    if (!Number.isInteger(rawTotalRounds) || Number(rawTotalRounds) < 5 || Number(rawTotalRounds) > 10) {
+      res.status(400).json({ error: "totalRounds must be an integer between 5 and 10" });
+      return;
+    }
+    const totalRounds = Number(rawTotalRounds);
+
     const sessionToken = randomUUID();
     try {
       await pool.query(
-        `INSERT INTO sessions (session_code, session_token, job_id, place_id)
-         VALUES ($1, $2, $3, $4)`,
-        [sessionCode, sessionToken, body.jobId, body.placeId]
+        `INSERT INTO sessions (session_code, session_token, job_id, place_id, total_rounds)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [sessionCode, sessionToken, body.jobId, body.placeId, totalRounds]
       );
-      res.status(201).json({ sessionId: sessionCode, sessionToken });
+      res.status(201).json({ sessionId: sessionCode, sessionToken, totalRounds });
     } catch (error) {
       if (isPgUniqueViolation(error)) {
         if (body.jobId !== "") {
           const existing = await pool.query(
-            `SELECT job_id, place_id, session_token FROM sessions
+            `SELECT job_id, place_id, session_token, total_rounds FROM sessions
              WHERE session_code = $1 AND status = 'active'`,
             [sessionCode]
           );
@@ -308,6 +352,7 @@ export function createApp(
             res.status(201).json({
               sessionId: sessionCode,
               sessionToken: existing.rows[0].session_token,
+              totalRounds: Number(existing.rows[0].total_rounds),
               duplicate: true
             });
             return;
@@ -335,15 +380,62 @@ export function createApp(
         res.status(404).json({ error: "Active session not found" });
         return;
       }
-      const result = await pool.query(
-        `SELECT id::double precision AS id, event_type AS type,
-                triggered_by AS "triggeredBy", params
-         FROM event_commands
-         WHERE session_id = $1 AND id > $2
-         ORDER BY id ASC`,
-        [session.id, since]
+      const [eventsResult, spectatorsResult] = await Promise.all([
+        pool.query(
+          `SELECT id::double precision AS id, event_type AS type,
+                  triggered_by AS "triggeredBy", params
+           FROM event_commands
+           WHERE session_id = $1 AND id > $2
+           ORDER BY id ASC`,
+          [session.id, since]
+        ),
+        pool.query<{ username: string; tokenBalance: string }>(
+          `SELECT p.username, m.token_balance AS "tokenBalance"
+           FROM session_memberships m
+           JOIN spectator_profiles p ON p.id = m.spectator_id
+           WHERE m.session_id = $1
+           ORDER BY m.token_balance DESC, m.joined_at ASC`,
+          [session.id]
+        )
+      ]);
+      res.json({
+        events: eventsResult.rows,
+        spectators: spectatorsResult.rows.map((row) => ({
+          username: row.username,
+          tokenBalance: Number(row.tokenBalance)
+        }))
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  sessions.get("/:code/spectators", async (req, res, next) => {
+    const identity = readSessionIdentity(req);
+    if (!identity) {
+      res.status(400).json({ error: "Invalid session code or session token" });
+      return;
+    }
+    try {
+      const session = await findActiveSession(pool, identity.code, identity.token);
+      if (!session) {
+        res.status(404).json({ error: "Active session not found" });
+        return;
+      }
+      const result = await pool.query<{ username: string; tokenBalance: string }>(
+        `SELECT p.username, m.token_balance AS "tokenBalance"
+         FROM session_memberships m
+         JOIN spectator_profiles p ON p.id = m.spectator_id
+         WHERE m.session_id = $1
+         ORDER BY m.token_balance DESC, m.joined_at ASC`,
+        [session.id]
       );
-      res.json({ events: result.rows });
+      res.json({
+        spectators: result.rows.map((row) => ({
+          username: row.username,
+          tokenBalance: Number(row.tokenBalance)
+        }))
+      });
     } catch (error) {
       next(error);
     }
@@ -398,6 +490,50 @@ export function createApp(
         await client.query("ROLLBACK");
       } catch (rollbackError) {
         console.error("[backend] telemetry rollback failed", rollbackError);
+      }
+      next(error);
+    } finally {
+      client.release();
+    }
+  });
+
+  sessions.post("/:code/round", async (req, res, next) => {
+    const identity = readSessionIdentity(req);
+    const body: unknown = req.body;
+    if (!identity || !isJsonObject(body) || !isPositiveInteger(body.round)) {
+      res.status(400).json({ error: "Expected a valid session code and positive round number" });
+      return;
+    }
+    if (body.totalRounds !== undefined &&
+        (!Number.isInteger(body.totalRounds) || Number(body.totalRounds) < 5 || Number(body.totalRounds) > 10)) {
+      res.status(400).json({ error: "totalRounds must be an integer between 5 and 10" });
+      return;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const session = await findActiveSession(client, identity.code, identity.token);
+      if (!session) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Active session not found" });
+        return;
+      }
+
+      await client.query(
+        `UPDATE sessions
+         SET current_round = $2,
+             total_rounds = COALESCE($3, total_rounds)
+         WHERE id = $1`,
+        [session.id, body.round, body.totalRounds ?? null]
+      );
+      await client.query("COMMIT");
+      res.json({ ok: true, round: body.round, totalRounds: body.totalRounds });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("[backend] round state rollback failed", rollbackError);
       }
       next(error);
     } finally {
@@ -597,7 +733,7 @@ export function createApp(
     try {
       await client.query("BEGIN");
       const sessionResult = await client.query<SpectatorSession>(
-        `SELECT id, current_round FROM sessions
+        `SELECT id, current_round, total_rounds FROM sessions
          WHERE session_code = $1 AND status = 'active'
          FOR SHARE`,
         [code]
@@ -642,7 +778,8 @@ export function createApp(
         sessionId: session.id,
         tokenBalance: Number(balance.rows[0].token_balance),
         username: profile.username,
-        currentRound: session.current_round
+        currentRound: session.current_round,
+        totalRounds: Number(session.total_rounds ?? 5)
       });
     } catch (error) {
       try {
@@ -657,6 +794,33 @@ export function createApp(
       next(error);
     } finally {
       client.release();
+    }
+  });
+
+  apiSessions.get("/:code", async (req, res, next) => {
+    const code = normalizeSessionCode(req.params.code);
+    if (!code) {
+      res.status(400).json({ error: "Invalid session code" });
+      return;
+    }
+    try {
+      const session = await pool.query<{ id: string; current_round: number; total_rounds: number; status: string }>(
+        `SELECT id, current_round, total_rounds, status FROM sessions
+         WHERE session_code = $1 AND status = 'active'`,
+        [code]
+      );
+      if (!session.rows[0]) {
+        res.status(404).json({ error: "Active session not found" });
+        return;
+      }
+      res.json({
+        sessionId: session.rows[0].id,
+        currentRound: session.rows[0].current_round,
+        totalRounds: Number(session.rows[0].total_rounds ?? 5),
+        status: session.rows[0].status
+      });
+    } catch (error) {
+      next(error);
     }
   });
 
@@ -799,6 +963,106 @@ export function createApp(
     }
   });
 
+  apiSessions.post("/:code/purchase", async (req, res, next) => {
+    const code = normalizeSessionCode(req.params.code);
+    const body: unknown = req.body;
+    if (!code || !isJsonObject(body) || typeof body.auth0UserId !== "string" ||
+        typeof body.eventType !== "string" || !basicEventIds.has(body.eventType)) {
+      res.status(400).json({ error: "Invalid basic event purchase request" });
+      return;
+    }
+    const auth0UserId = readAuth0UserId(req, body.auth0UserId);
+    if (!auth0UserId) {
+      res.status(403).json({ error: "Authenticated user does not match auth0UserId" });
+      return;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const session = await getSpectatorSession(client, code);
+      if (!session) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Active session not found" });
+        return;
+      }
+      const spectator = await client.query<{ id: string; username: string; token_balance: string }>(
+        `SELECT p.id, p.username, m.token_balance
+         FROM spectator_profiles p
+         JOIN session_memberships m ON m.spectator_id = p.id
+         WHERE p.auth0_subject = $1 AND m.session_id = $2
+         FOR UPDATE OF m`,
+        [auth0UserId, session.id]
+      );
+      const profile = spectator.rows[0];
+      if (!profile) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Join the session before purchasing an event" });
+        return;
+      }
+      if (Number(profile.token_balance) < 30) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Insufficient tokens" });
+        return;
+      }
+
+      const command = await client.query<{ id: string }>(
+        `INSERT INTO event_commands (session_id, event_type, triggered_by, params, status)
+         VALUES ($1, $2, $3, '{}'::jsonb, 'pending')
+         RETURNING id`,
+        [session.id, body.eventType, profile.username]
+      );
+      if (lockedEventIds.has(body.eventType)) {
+        const lock = await client.query(
+          `INSERT INTO event_locks (session_id, event_type, command_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (session_id, event_type) DO NOTHING
+           RETURNING id`,
+          [session.id, body.eventType, command.rows[0].id]
+        );
+        if (!lock.rowCount) {
+          await client.query("ROLLBACK");
+          res.status(409).json({ error: "Event is currently active or locked" });
+          return;
+        }
+      }
+
+      const idempotencyKey = `purchase:${session.id}:${profile.id}:${randomUUID()}`;
+      const debit = await client.query(
+        `INSERT INTO token_ledger (membership_id, delta, reason, idempotency_key)
+         SELECT m.id, -30, 'purchase', $3
+         FROM session_memberships m
+         WHERE m.session_id = $1 AND m.spectator_id = $2 AND m.token_balance >= 30
+         RETURNING id`,
+        [session.id, profile.id, idempotencyKey]
+      );
+      if (!debit.rowCount) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Insufficient tokens" });
+        return;
+      }
+      const balance = await client.query<{ token_balance: string }>(
+        "SELECT token_balance FROM session_memberships WHERE session_id = $1 AND spectator_id = $2",
+        [session.id, profile.id]
+      );
+      await client.query("COMMIT");
+      res.json({
+        ok: true,
+        eventType: body.eventType,
+        tokenBalance: Number(balance.rows[0].token_balance)
+      });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("[backend] basic event purchase rollback failed", rollbackError);
+      }
+      next(error);
+    } finally {
+      client.release();
+    }
+  });
+
   app.use("/api/sessions", apiSessions);
 
   const profiles = express.Router();
@@ -850,17 +1114,14 @@ export function createApp(
     }
     try {
       const result = await pool.query(
-        `UPDATE spectator_profiles SET username = $2
-         WHERE auth0_subject = $1
+        `INSERT INTO spectator_profiles (auth0_subject, username)
+         VALUES ($1, $2)
+         ON CONFLICT (auth0_subject) DO UPDATE SET username = EXCLUDED.username
          RETURNING auth0_subject AS "auth0UserId", username,
                    total_sessions_joined AS "totalSessionsJoined",
                    total_tokens_spent AS "totalTokensSpent", created_at AS "createdAt"`,
         [auth0UserId, username]
       );
-      if (!result.rowCount) {
-        res.status(404).json({ error: "Spectator profile not found" });
-        return;
-      }
       const profile = result.rows[0];
       res.json({
         ...profile,

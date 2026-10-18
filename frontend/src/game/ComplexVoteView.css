@@ -42,8 +42,21 @@
   font-weight: 700;
   text-align: center;
   color: #000000;
-  margin: 0 0 0.85rem;
+  margin: 0 0 0.35rem;
   letter-spacing: -0.02em;
+}
+
+.vote-round-badge {
+  display: inline-block;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  border: 1px solid #bfdbfe;
+  margin: 0 auto 0.75rem;
+  text-align: center;
 }
 
 .vote-status-bar {
@@ -147,6 +160,20 @@
   font-weight: 800;
   color: #ffffff;
   margin-left: 0.35rem;
+}
+
+.vote-api-error {
+  margin: 0.75rem 0 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.vote-api-status {
+  margin: 0.5rem 0 0;
+  color: #6b7280;
+  font-size: 0.82rem;
+  text-align: center;
 }
 
 /* Prediction section */

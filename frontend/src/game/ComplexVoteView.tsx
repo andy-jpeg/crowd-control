@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './ComplexVoteView.css'
 
 export interface PlayerInfo {
@@ -8,7 +8,11 @@ export interface PlayerInfo {
 
 interface ComplexVoteViewProps {
   sessionCode: string
+  currentRound?: number
+  totalRounds?: number
   players?: PlayerInfo[]
+  onVoteEvent?: (eventId: string) => Promise<void>
+  onSubmitPrediction?: (type: 'time_bracket' | 'player', value: string) => Promise<void>
   onVoteComplete?: (selectedEventId: string | null, prediction: string | null) => void
   onLeaveSession?: () => void
 }
@@ -25,6 +29,7 @@ const COMPLEX_EVENTS: ComplexEventOption[] = [
   { id: 'floor_is_lava', name: 'Floor Is Lava' },
   { id: 'tornado', name: 'Tornado' },
   { id: 'flood_escape', name: 'Flood Escape' },
+  { id: 'blob_fight', name: 'Blob Fight' },
 ]
 
 export const TIME_INTERVALS = [
@@ -35,15 +40,13 @@ export const TIME_INTERVALS = [
 ] as const
 
 const DEFAULT_SINGLE_PLAYER: PlayerInfo[] = [{ id: 'p1', name: 'Player 1' }]
-const DEFAULT_MULTI_PLAYERS: PlayerInfo[] = [
-  { id: 'p1', name: 'Player 1' },
-  { id: 'p2', name: 'Player 2' },
-  { id: 'p3', name: 'Player 3' },
-]
-
 export function ComplexVoteView({
   sessionCode,
+  currentRound = 1,
+  totalRounds = 5,
   players,
+  onVoteEvent,
+  onSubmitPrediction,
   onVoteComplete,
   onLeaveSession,
 }: ComplexVoteViewProps) {
@@ -51,38 +54,63 @@ export function ComplexVoteView({
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [prediction, setPrediction] = useState<string>('')
   const [isLocked, setIsLocked] = useState(false)
-
-  // Demo toggle for testing 1 player vs multiple players
-  const [demoMultiPlayer, setDemoMultiPlayer] = useState(false)
+  const [pendingWrites, setPendingWrites] = useState(0)
+  const [actionError, setActionError] = useState('')
+  const completedRef = useRef(false)
 
   const activePlayers = players && players.length > 0
     ? players
-    : (demoMultiPlayer ? DEFAULT_MULTI_PLAYERS : DEFAULT_SINGLE_PLAYER)
+    : DEFAULT_SINGLE_PLAYER
 
   const isSinglePlayer = activePlayers.length === 1
 
-  // 15-second countdown timer
   useEffect(() => {
-    if (secondsLeft <= 0) {
-      setIsLocked(true)
-      if (onVoteComplete) {
-        onVoteComplete(selectedEventId, prediction || null)
-      }
-      return
-    }
+    if (secondsLeft <= 0) return
 
     const timer = setInterval(() => {
       setSecondsLeft((prev) => prev - 1)
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [secondsLeft, selectedEventId, prediction, onVoteComplete])
+  }, [secondsLeft])
+
+  useEffect(() => {
+    if (secondsLeft > 0) return
+    setIsLocked(true)
+    if (pendingWrites === 0 && !completedRef.current) {
+      completedRef.current = true
+      onVoteComplete?.(selectedEventId, prediction || null)
+    }
+  }, [secondsLeft, pendingWrites, selectedEventId, prediction, onVoteComplete])
 
   const formattedTime = `0:${secondsLeft < 10 ? '0' : ''}${secondsLeft}`
 
-  const handleVote = (id: string) => {
-    if (isLocked) return
+  const handleVote = async (id: string) => {
+    if (isLocked || pendingWrites > 0 || !onVoteEvent) return
     setSelectedEventId(id)
+    setActionError('')
+    setPendingWrites((count) => count + 1)
+    try {
+      await onVoteEvent(id)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Vote could not be saved. Try again.')
+    } finally {
+      setPendingWrites((count) => Math.max(0, count - 1))
+    }
+  }
+
+  const handlePrediction = async (type: 'time_bracket' | 'player', value: string) => {
+    if (isLocked || pendingWrites > 0 || !onSubmitPrediction) return
+    setPrediction(value)
+    setActionError('')
+    setPendingWrites((count) => count + 1)
+    try {
+      await onSubmitPrediction(type, value)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Prediction could not be saved. Try again.')
+    } finally {
+      setPendingWrites((count) => Math.max(0, count - 1))
+    }
   }
 
   return (
@@ -94,7 +122,10 @@ export function ComplexVoteView({
       )}
 
       <header className="vote-header">
-        <h1 className="vote-brand-title">Crowd Control</h1>
+        <div>
+          <h1 className="vote-brand-title">Crowd Control</h1>
+          <span className="vote-round-badge">Round {currentRound} of {totalRounds}</span>
+        </div>
         <div className="vote-status-bar">
           <span className="vote-timer">{formattedTime}</span>
           <div className="vote-circle-badge" title="Session active" />
@@ -119,7 +150,7 @@ export function ComplexVoteView({
                   type="button"
                   className={`vote-card-btn ${isSelected ? 'selected' : ''}`}
                   onClick={() => handleVote(event.id)}
-                  disabled={isLocked}
+                  disabled={isLocked || pendingWrites > 0}
                 >
                   <span className="vote-card-text">{event.name}</span>
                   {isSelected && <span className="vote-checkmark">✓</span>}
@@ -143,8 +174,11 @@ export function ComplexVoteView({
               <select
                 className="prediction-select"
                 value={prediction}
-                onChange={(e) => setPrediction(e.target.value)}
-                disabled={isLocked}
+                onChange={(e) => {
+                  if (e.target.value) void handlePrediction('time_bracket', e.target.value)
+                  else setPrediction('')
+                }}
+                disabled={isLocked || pendingWrites > 0}
               >
                 <option value="">Select interval...</option>
                 {TIME_INTERVALS.map((interval) => (
@@ -164,8 +198,8 @@ export function ComplexVoteView({
                     key={player.id}
                     type="button"
                     className={`player-btn ${isSelected ? 'selected' : ''}`}
-                    onClick={() => !isLocked && setPrediction(player.id)}
-                    disabled={isLocked}
+                    onClick={() => void handlePrediction('player', player.id)}
+                    disabled={isLocked || pendingWrites > 0}
                   >
                     <span>{player.name}</span>
                     {isSelected && <span className="vote-checkmark">✓</span>}
@@ -178,29 +212,17 @@ export function ComplexVoteView({
           <p className="prediction-reward-note">
             🎯 Correct guess awards <strong>+50 tokens</strong> at round end!
           </p>
+          {actionError && <p className="vote-api-error" role="alert">{actionError}</p>}
+          {pendingWrites > 0 && <p className="vote-api-status" role="status">Saving your choice…</p>}
         </section>
       </main>
 
-      {/* Developer preview toggle for testing & Proceed button */}
       <footer className="vote-footer">
-        <button
-          type="button"
-          className="proceed-round-btn"
-          onClick={() => onVoteComplete?.(selectedEventId, prediction || null)}
-        >
-          Start Round (Go to Wheel) →
-        </button>
-
-        <button
-          type="button"
-          className="demo-toggle-btn"
-          onClick={() => {
-            setDemoMultiPlayer((prev) => !prev)
-            setPrediction('')
-          }}
-        >
-          Toggle Preview: {isSinglePlayer ? '1 Player (Dropdown)' : '3 Players (Choice)'}
-        </button>
+        <p className="vote-api-status" role="status">
+          {secondsLeft > 0
+            ? 'Your vote and prediction can be changed until the timer ends.'
+            : 'Voting closed. Starting the round…'}
+        </p>
       </footer>
     </div>
   )
