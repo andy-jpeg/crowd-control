@@ -1,7 +1,9 @@
 local GuiService = game:GetService("GuiService")
+local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
 local HostSession = ReplicatedStorage:WaitForChild("HostSession")
@@ -19,13 +21,17 @@ local GRID_MARGIN = 3 -- extra cells on every side so an edge never drifts into 
 local GRID_FADE_TIME = 0.2
 local LOGO_EXIT_TIME, EXIT_MARGIN = 0.45, 20 -- matches the lobby's exit
 local HOVER_SCALE, HOVER_TIME = 1.1, 0.15
+local WOOSH_ID, WOOSH_VOLUME = "rbxassetid://100912899778737", 1.5 -- Sonic Mania Menu Woosh, it's quiet so it's above the usual 0.5
+local BLUR_SIZE, BLUR_TIME = 10, 0.6 -- the game world behind the menu, the UI itself stays sharp
 local logoGoal1, logoGoal2 = {Rotation = SWAY_ANGLE}, {Scale = PULSE_SCALE}
 local uncoverGoal, fadeGoal = {Size = UDim2.fromOffset(0, 0)}, {BackgroundTransparency = 1}
 local hoverGoal1, hoverGoal2 = {Scale = HOVER_SCALE}, {Scale = 1}
+local blurGoal1, blurGoal2 = {Size = BLUR_SIZE}, {Size = 0}
 local logoHome = Logo.Position
 local isStarting, isEnding = false, false
 local lastState = nil
 local Cover, Grid, gridConnection = nil, nil, nil
+local isBlurred = nil
 
 local Transition = Instance.new("ScreenGui")
 Transition.Name = "Transition"
@@ -36,6 +42,14 @@ Transition.Parent = PlayerGui
 
 local PlayScale = Instance.new("UIScale")
 PlayScale.Parent = Play
+
+local Woosh = Instance.new("Sound")
+Woosh.Name, Woosh.SoundId, Woosh.Volume = "PlayWoosh", WOOSH_ID, WOOSH_VOLUME
+Woosh.Parent = SoundService
+
+local MenuBlur = Instance.new("BlurEffect")
+MenuBlur.Name, MenuBlur.Size = "MenuBlur", 0
+MenuBlur.Parent = Lighting -- made on the client, so only this player's view blurs
 
 local function animateLogo()
 	local tweenInfo1 = TweenInfo.new(SWAY_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
@@ -214,9 +228,21 @@ local function sendLogoAway()
 	exitTween:Play()
 end
 
+local function setBlurred(shouldBlur)
+	if isBlurred == shouldBlur then return end
+	isBlurred = shouldBlur
+
+	local tweenInfo = TweenInfo.new(BLUR_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+	local blurTween = TweenService:Create(MenuBlur, tweenInfo, shouldBlur and blurGoal1 or blurGoal2)
+
+	blurTween:Play()
+end
+
 local function updateMenu()
 	local roundState = ReplicatedStorage:GetAttribute("RoundState")
 	local inMenu, inLobby = roundState == nil or roundState == "menu", roundState == "lobby"
+	setBlurred(inMenu) -- clears once the lobby starts, comes back when the session ends
 	local wasPlaying = lastState ~= nil and lastState ~= "menu" and lastState ~= "lobby"
 	lastState = roundState
 
@@ -266,6 +292,7 @@ Play.Activated:Connect(function(inputObject)
 	end
 	isStarting = true
 
+	Woosh:Play()
 	Play.Visible = false
 	PlayScale.Scale = 1 -- so it isn't still enlarged when the menu comes back
 	coverScreen(getClickPosition(inputObject))

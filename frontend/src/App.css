@@ -199,6 +199,19 @@ button:disabled {
   line-height: 1;
 }
 
+.stat-value-tokens {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.stat-token-icon {
+  width: 1.4rem;
+  height: 1.4rem;
+  object-fit: contain;
+}
+
 
 /* Global token badge to match basic events page everywhere */
 .basic-token-badge {

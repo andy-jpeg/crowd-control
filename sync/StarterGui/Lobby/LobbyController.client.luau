@@ -22,11 +22,14 @@ local NO_CODE = "Offline"
 local SHOW_DELAY = 0.6 -- matches the menu's cover transition
 local POP_TIME = 0.4
 local POP_STAGGER = 0.08
+local POP_SOUND_ID, POP_VOLUME, POP_PITCH_RANGE = "rbxassetid://8517153399", 1, 0.08 -- BApeptalk1, pitch varies a little so repeats don't sound copy-pasted
+local POP_LIFETIME = 10
 local EXIT_TIME, EXIT_MARGIN = 0.45, 20
 local LEAVE_TIMEOUT = 5
 local HOVER_SCALE, HOVER_TIME = 1.1, 0.15
 local LOBBY_MUSIC_ID, ROUND_MUSIC_ID = "rbxassetid://1841647093", "rbxassetid://1837849285" -- Life in an Elevator, Night Vision
 local MUSIC_VOLUME, MUSIC_FADE_TIME = 0.4, 1.5
+local WOOSH_ID, WOOSH_VOLUME = "rbxassetid://100912899778737", 1.5 -- Sonic Mania Menu Woosh, it's quiet so it's above the usual 0.5
 local START_SWAY_ANGLE, START_SWAY_TIME, START_PULSE_SCALE, START_PULSE_TIME = 2.5, 2.6, 1.035, 1.8 -- calmer than the logo (5, 2, 1.06, 1.4)
 local EMPTY_TEXT = "Waiting for spectators...\nJoin at <u>survivalofthe.fit</u>" -- rich text, so the address is underlined
 local MUSIC_LOAD_TIMEOUT = 10
@@ -60,6 +63,7 @@ local showId = 0
 local isLeaving = false
 local homePositions = {}
 local knownNames = {}
+local random = Random.new()
 local chosenRounds = MIN_ROUNDS
 local isDragging = false
 
@@ -297,6 +301,14 @@ end
 local LobbyMusic = createMusic("LobbyMusic", LOBBY_MUSIC_ID)
 local RoundMusic = createMusic("RoundMusic", ROUND_MUSIC_ID)
 
+local PopSound = Instance.new("Sound")
+PopSound.Name, PopSound.SoundId, PopSound.Volume = "PopSound", POP_SOUND_ID, POP_VOLUME
+PopSound.Parent = SoundService
+
+local Woosh = Instance.new("Sound")
+Woosh.Name, Woosh.SoundId, Woosh.Volume = "StartWoosh", WOOSH_ID, WOOSH_VOLUME
+Woosh.Parent = SoundService
+
 for _, Music in {LobbyMusic, RoundMusic} do
 	task.delay(MUSIC_LOAD_TIMEOUT, function()
 		if not Music.IsLoaded then -- usually the audio's permissions: the game has to be allowed to use it
@@ -330,6 +342,22 @@ local function getScale(element)
 		scale.Parent = element
 	end
 	return scale
+end
+
+local function playPop() -- a copy each time, so pops that overlap don't cut each other off
+	local Pop = PopSound:Clone()
+	Pop.PlaybackSpeed = 1 + random:NextNumber(-POP_PITCH_RANGE, POP_PITCH_RANGE)
+	Pop.Parent = SoundService
+	Pop:Play()
+
+	Pop.Ended:Once(function()
+		Pop:Destroy()
+	end)
+	task.delay(POP_LIFETIME, function()
+		if Pop.Parent then
+			Pop:Destroy() -- in case it never loaded and Ended never fires
+		end
+	end)
 end
 
 local function popIn(element, delay)
@@ -662,6 +690,7 @@ local function updateLobby()
 		Lobby.Enabled = true
 		placeRounds()
 		buildStrips()
+		playPop() -- once for the whole group, not per element
 		for index, element in popElements do
 			popIn(element, (index - 1) * POP_STAGGER)
 		end
@@ -672,6 +701,7 @@ if Start then
 	Start.Activated:Connect(function(inputObject)
 		if isLeaving then return end
 		isLeaving, isDragging = true, false
+		Woosh:Play()
 		player:SetAttribute("UncoverPosition", getClickPosition(inputObject)) -- the cover shrinks back into the Start button
 		player:SetAttribute("LeavingLobby", true) -- the menu script sends the logo up too
 		leaveLobby()
@@ -687,6 +717,7 @@ if Start then
 				resetPositions()
 				player:SetAttribute("LeavingLobby", false)
 				playMusic(LobbyMusic)
+				playPop() -- once for the whole group, not per element
 				for index, element in popElements do
 					popIn(element, (index - 1) * POP_STAGGER)
 				end

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { profileService, type ProfileRecord, UsernameTakenError } from './profileService'
+import tokenIcon from '../assets/token.png'
 
 type OnboardingState = 'choice' | 'onboarding' | 'dashboard'
 
@@ -346,7 +347,10 @@ export function AuthPanel({ onJoinSession }: AuthPanelProps = {}) {
         </div>
         <div className="stat-card">
           <span className="stat-label">Overall Tokens Spent</span>
-          <strong className="stat-value">{profile?.totalTokensSpent ?? 0}</strong>
+          <strong className="stat-value stat-value-tokens">
+            <img src={tokenIcon} className="stat-token-icon" alt="" />
+            {profile?.totalTokensSpent ?? 0}
+          </strong>
         </div>
       </div>
 

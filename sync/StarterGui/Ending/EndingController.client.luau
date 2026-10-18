@@ -1,6 +1,7 @@
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
@@ -9,6 +10,8 @@ local Ending = script.Parent
 
 local SHOW_DELAY = 0.6 -- matches the cover transition
 local POP_TIME, POP_STAGGER = 0.4, 0.08
+local POP_SOUND_ID, POP_VOLUME, POP_PITCH_RANGE = "rbxassetid://8517153399", 1, 0.08 -- BApeptalk1, pitch varies a little so repeats don't sound copy-pasted
+local POP_LIFETIME = 10
 local EXIT_TIME, EXIT_MARGIN, EXIT_LEAD = 0.45, 20, 0.1 -- leaves just before the menu comes back
 local COUNTDOWN_FORMAT = "Back to menu in %d"
 local ROW_HEIGHT, ROW_PADDING, HEADER_HEIGHT, PANEL_PADDING = 34, 6, 40, 12
@@ -25,6 +28,11 @@ local popGoal = {Scale = 1}
 local isShown = false
 local showId = 0
 local homePositions = {}
+local random = Random.new()
+
+local PopSound = Instance.new("Sound")
+PopSound.Name, PopSound.SoundId, PopSound.Volume = "PopSound", POP_SOUND_ID, POP_VOLUME
+PopSound.Parent = SoundService
 
 local function addCorner(parent, radius)
 	local UICorner = Instance.new("UICorner")
@@ -155,6 +163,22 @@ local function getScale(element)
 		scale.Parent = element
 	end
 	return scale
+end
+
+local function playPop() -- a copy each time, so pops that overlap don't cut each other off
+	local Pop = PopSound:Clone()
+	Pop.PlaybackSpeed = 1 + random:NextNumber(-POP_PITCH_RANGE, POP_PITCH_RANGE)
+	Pop.Parent = SoundService
+	Pop:Play()
+
+	Pop.Ended:Once(function()
+		Pop:Destroy()
+	end)
+	task.delay(POP_LIFETIME, function()
+		if Pop.Parent then
+			Pop:Destroy() -- in case it never loaded and Ended never fires
+		end
+	end)
 end
 
 local function popIn(element, delay)
@@ -344,6 +368,7 @@ local function updateEnding()
 	task.delay(SHOW_DELAY, function()
 		if id ~= showId then return end -- the cover is still growing until now
 		Ending.Enabled = true
+		playPop() -- once for the whole group, not per element
 		for index, element in popElements do
 			popIn(element, (index - 1) * POP_STAGGER)
 		end
