@@ -6,20 +6,25 @@ local TweenService = game:GetService("TweenService")
 
 local HostSession = ReplicatedStorage:WaitForChild("HostSession")
 
+local player = Players.LocalPlayer
 local MainMenu = script.Parent
 local Play, Logo = MainMenu.Play, MainMenu.Logo
-local Rounds = MainMenu:FindFirstChild("Rounds") -- optional TextButton that cycles the round count
-local PlayerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+local PlayerGui = player:WaitForChild("PlayerGui")
 
 local SWAY_ANGLE, SWAY_TIME, PULSE_SCALE, PULSE_TIME = 5, 2, 1.06, 1.4
 local TRANSITION_COLOR, TRANSITION_TIME, LOADING_TIMEOUT = Color3.fromRGB(225, 158, 29), 0.6, 10
 local GRID_SIZE, GRID_THICKNESS, GRID_COLOR, GRID_TRANSPARENCY = 40, 2, Color3.fromRGB(195, 93, 42), 0.78
 local GRID_SPEED = GRID_SIZE / 3 -- one cell every 3 seconds, matching the website
 local GRID_MARGIN = 3 -- extra cells on every side so an edge never drifts into view
-local MIN_ROUNDS, MAX_ROUNDS = 5, 10
+local GRID_FADE_TIME = 0.2
+local LOGO_EXIT_TIME, EXIT_MARGIN = 0.45, 20 -- matches the lobby's exit
+local HOVER_SCALE, HOVER_TIME = 1.1, 0.15
 local logoGoal1, logoGoal2 = {Rotation = SWAY_ANGLE}, {Scale = PULSE_SCALE}
-local isStarting = false
-local chosenRounds = MIN_ROUNDS
+local uncoverGoal, fadeGoal = {Size = UDim2.fromOffset(0, 0)}, {BackgroundTransparency = 1}
+local hoverGoal1, hoverGoal2 = {Scale = HOVER_SCALE}, {Scale = 1}
+local logoHome = Logo.Position
+local isStarting, isEnding = false, false
+local lastState = nil
 local Cover, Grid, gridConnection = nil, nil, nil
 
 local Transition = Instance.new("ScreenGui")
@@ -29,11 +34,8 @@ Transition.DisplayOrder = MainMenu.DisplayOrder - 1 -- behind the menu, so the l
 Transition.DisplayOrder = 1
 Transition.Parent = PlayerGui
 
-local function updateRounds()
-	if Rounds and Rounds:IsA("TextButton") then
-		Rounds.Text = "Rounds: " .. chosenRounds
-	end
-end
+local PlayScale = Instance.new("UIScale")
+PlayScale.Parent = Play
 
 local function animateLogo()
 	local tweenInfo1 = TweenInfo.new(SWAY_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
@@ -48,6 +50,14 @@ local function animateLogo()
 
 	logoTween1:Play()
 	logoTween2:Play()
+end
+
+local function setPlayHovered(isHovered)
+	local tweenInfo = TweenInfo.new(HOVER_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+	local hoverTween = TweenService:Create(PlayScale, tweenInfo, isHovered and hoverGoal1 or hoverGoal2)
+
+	hoverTween:Play()
 end
 
 local function getClickPosition(inputObject)
@@ -89,10 +99,11 @@ local function startGrid()
 	buildGridLines()
 	Grid.Parent = Transition
 
+	local MovingGrid = Grid
 	local startTime = os.clock()
 	gridConnection = RunService.RenderStepped:Connect(function()
 		local offset = ((os.clock() - startTime) * GRID_SPEED) % GRID_SIZE - GRID_SIZE * GRID_MARGIN
-		Grid.Position = UDim2.fromOffset(offset, offset)
+		MovingGrid.Position = UDim2.fromOffset(offset, offset)
 	end)
 end
 
@@ -107,12 +118,34 @@ local function stopGrid()
 	end
 end
 
-local function coverScreen(position)
+local function fadeGrid()
+	if not Grid then return end
+	local FadingGrid, fadingConnection = Grid, gridConnection
+	Grid, gridConnection = nil, nil -- keeps drifting while it fades
+
+	local tweenInfo = TweenInfo.new(GRID_FADE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+	for _, Line in FadingGrid:GetChildren() do
+		TweenService:Create(Line, tweenInfo, fadeGoal):Play()
+	end
+
+	task.delay(GRID_FADE_TIME, function()
+		fadingConnection:Disconnect()
+		FadingGrid:Destroy()
+	end)
+end
+
+local function getReach(position)
 	local screenSize = Transition.AbsoluteSize
 	local reach = 0
 	for _, corner in {Vector2.zero, Vector2.new(screenSize.X, 0), Vector2.new(0, screenSize.Y), screenSize} do
 		reach = math.max(reach, (corner - position).Magnitude)
 	end
+	return reach
+end
+
+local function coverScreen(position, onCovered)
+	local reach = getReach(position)
 
 	Cover = Instance.new("Frame")
 	Cover.Name = "Cover"
@@ -131,7 +164,10 @@ local function coverScreen(position)
 	coverTween:Play()
 
 	coverTween.Completed:Connect(function(playbackState)
-		if playbackState == Enum.PlaybackState.Completed and Cover and not Grid then
+		if playbackState ~= Enum.PlaybackState.Completed or not Cover then return end
+		if onCovered then
+			onCovered()
+		elseif not Grid then
 			startGrid()
 		end
 	end)
@@ -145,24 +181,82 @@ local function removeCover()
 	end
 end
 
+local function uncoverScreen(position) -- the start transition in reverse
+	if not Cover then return end
+	fadeGrid()
+
+	local reach = getReach(position)
+	local ClosingCover = Cover
+	Cover = nil
+	ClosingCover.Position, ClosingCover.Size = UDim2.fromOffset(position.X, position.Y), UDim2.fromOffset(reach * 2, reach * 2)
+
+	local tweenInfo = TweenInfo.new(TRANSITION_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+	local uncoverTween = TweenService:Create(ClosingCover, tweenInfo, uncoverGoal)
+
+	uncoverTween:Play()
+	uncoverTween.Completed:Connect(function()
+		ClosingCover:Destroy()
+	end)
+end
+
+local function getScreenCenter()
+	return Transition.AbsoluteSize / 2
+end
+
+local function sendLogoAway()
+	local top = Logo.AbsolutePosition.Y - MainMenu.AbsolutePosition.Y + Logo.AbsoluteSize.Y + EXIT_MARGIN
+
+	local tweenInfo = TweenInfo.new(LOGO_EXIT_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+
+	local exitTween = TweenService:Create(Logo, tweenInfo, {Position = logoHome - UDim2.fromOffset(0, top)})
+
+	exitTween:Play()
+end
+
 local function updateMenu()
 	local roundState = ReplicatedStorage:GetAttribute("RoundState")
 	local inMenu, inLobby = roundState == nil or roundState == "menu", roundState == "lobby"
+	local wasPlaying = lastState ~= nil and lastState ~= "menu" and lastState ~= "lobby"
+	lastState = roundState
+
+	if inMenu and wasPlaying then -- the session ended: swap in the menu under the cover, then reveal it
+		local function revealMenu()
+			isEnding = false
+			Logo.Position = logoHome
+			MainMenu.Enabled, Play.Visible = true, true
+			uncoverScreen(getScreenCenter())
+		end
+
+		if Cover then
+			revealMenu() -- the ending screen already put the cover up
+		else
+			isEnding = true
+			coverScreen(getScreenCenter(), revealMenu)
+		end
+		return
+	elseif isEnding then
+		return
+	end
 
 	MainMenu.Enabled = inMenu or inLobby -- the logo stays up over the cover through the lobby
 
 	if inMenu then
 		Play.Visible = not isStarting
-		if Rounds then Rounds.Visible = not isStarting end
 		if not isStarting then
 			removeCover()
 		end
 	elseif inLobby then
 		Play.Visible = false
-		if Rounds then Rounds.Visible = false end
+	elseif roundState == "sessionOver" then
+		isStarting = false
+		if not Cover then
+			coverScreen(getScreenCenter()) -- the ending screen sits on the cover, like the lobby
+		end
 	else
 		isStarting = false
-		removeCover()
+		uncoverScreen(player:GetAttribute("UncoverPosition") or getScreenCenter())
+		player:SetAttribute("UncoverPosition", nil)
 	end
 end
 
@@ -173,9 +267,9 @@ Play.Activated:Connect(function(inputObject)
 	isStarting = true
 
 	Play.Visible = false
-	if Rounds then Rounds.Visible = false end
+	PlayScale.Scale = 1 -- so it isn't still enlarged when the menu comes back
 	coverScreen(getClickPosition(inputObject))
-	HostSession:FireServer(chosenRounds)
+	HostSession:FireServer()
 
 	task.delay(LOADING_TIMEOUT, function()
 		local roundState = ReplicatedStorage:GetAttribute("RoundState")
@@ -186,21 +280,32 @@ Play.Activated:Connect(function(inputObject)
 	end)
 end)
 
+Play.MouseEnter:Connect(function()
+	if not isStarting then
+		setPlayHovered(true)
+	end
+end)
+
+Play.MouseLeave:Connect(function()
+	if not isStarting then
+		setPlayHovered(false)
+	end
+end)
+
 Transition:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 	if Grid then -- the window or phone was resized, so make sure the grid still covers it
 		buildGridLines()
 	end
 end)
 
-if Rounds and Rounds:IsA("GuiButton") then
-	Rounds.Activated:Connect(function()
-		if isStarting then return end
-		chosenRounds = chosenRounds >= MAX_ROUNDS and MIN_ROUNDS or chosenRounds + 1
-		updateRounds()
-	end)
-end
+player:GetAttributeChangedSignal("LeavingLobby"):Connect(function()
+	if player:GetAttribute("LeavingLobby") then
+		sendLogoAway()
+	else
+		Logo.Position = logoHome -- the start failed, so the lobby came back
+	end
+end)
 
 ReplicatedStorage:GetAttributeChangedSignal("RoundState"):Connect(updateMenu)
 updateMenu()
-updateRounds()
 animateLogo()

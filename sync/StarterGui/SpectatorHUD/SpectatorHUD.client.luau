@@ -149,7 +149,7 @@ end
 local function updateVisibility()
 	local roundState = ReplicatedStorage:GetAttribute("RoundState")
 	-- Hide during main menu; show during lobby, intermission, active, results
-	container.Visible = roundState ~= nil and roundState ~= "menu"
+	container.Visible = roundState ~= nil and roundState ~= "menu" and roundState ~= "lobby" -- the lobby shows its own list
 end
 
 ReplicatedStorage:GetAttributeChangedSignal("SpectatorList"):Connect(renderSpectators)
